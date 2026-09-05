@@ -1,0 +1,37 @@
+# My Books — line ending policy.
+# Development happens on Windows; the application runs in Linux containers.
+# Everything is stored LF in git so container-executed files never carry CRLF.
+* text=auto eol=lf
+
+# Files that must be LF or they break at runtime
+*.sh            text eol=lf
+*.php           text eol=lf
+*.ts            text eol=lf
+*.tsx           text eol=lf
+*.js            text eol=lf
+*.json          text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.sql           text eol=lf
+*.env*          text eol=lf
+Dockerfile*     text eol=lf
+Caddyfile       text eol=lf
+*.stub          text eol=lf
+
+# Binary — never touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary
+
+# Keep generated/vendored noise out of diffs and language stats
+composer.lock       -diff linguist-generated
+package-lock.json   -diff linguist-generated
+public/build/**     linguist-generated

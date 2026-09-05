@@ -1,0 +1,49 @@
+{
+	# Admin API is bound to loopback only — never exposed to the network.
+	admin off
+
+	# In production set MY_BOOKS_DOMAIN and Caddy provisions TLS automatically.
+	# Locally, {$SERVER_NAME} defaults to :80 (plain HTTP) so no certificate
+	# warnings get in the way of development.
+	frankenphp
+
+	order php_server before file_server
+}
+
+{$SERVER_NAME::80} {
+	log {
+		output stdout
+		format json
+		# Never log Authorization headers, cookies or query strings that can
+		# carry tokens. Application-level logging is where request detail lives.
+		level  INFO
+	}
+
+	root * /app/public
+
+	encode zstd br gzip
+
+	header {
+		# Defence in depth — the application also sets these, but a static
+		# asset served straight off disk never reaches PHP.
+		X-Content-Type-Options   "nosniff"
+		X-Frame-Options          "DENY"
+		Referrer-Policy          "strict-origin-when-cross-origin"
+		Cross-Origin-Opener-Policy "same-origin"
+		-Server
+		-X-Powered-By
+	}
+
+	# Immutable, content-hashed Vite output.
+	@build path /build/*
+	header @build Cache-Control "public, max-age=31536000, immutable"
+
+	# Never serve dotfiles or anything under storage/ even by mistake.
+	@forbidden path /.* /storage/* /vendor/*
+	respond @forbidden 404
+
+	php_server {
+		# Laravel's front controller handles every unmatched route.
+		index index.php
+	}
+}

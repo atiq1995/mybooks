@@ -1,0 +1,26 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    # Maximum strictness from the first commit. Loosening a level later is a
+    # one-line change; tightening one against an existing codebase is a week.
+    level: max
+
+    paths:
+        - app
+        - database
+        - routes
+        - bootstrap/app.php
+        - bootstrap/providers.php
+        # Only OUR config file. The framework's published config files use
+        # env() idioms that are not level-max clean, and are not ours to fix.
+        - config/my-books.php
+
+    excludePaths:
+        # Fortify's published stubs are vendor code we have not modified.
+        - app/Actions/Fortify
+
+    # Laravel's magic is real, and Larastan understands most of it. Where it
+    # does not, prefer a typed accessor or a docblock over an ignore rule.
+    reportUnmatchedIgnoredErrors: true
+    treatPhpDocTypesAsCertain: false

@@ -1,0 +1,191 @@
+# ===========================================================================
+# My Books — continuous integration
+#
+# Runs the same commands a developer runs locally (`composer check`,
+# `npm run check`), against the same PostgreSQL major, so a green local run
+# means a green pipeline and vice versa.
+#
+# Tests run against REAL PostgreSQL. Never SQLite: constraints, triggers and
+# row-level security are part of what is being tested.
+# ===========================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PHP_VERSION: '8.4'
+  NODE_VERSION: '24'
+
+jobs:
+  # -------------------------------------------------------------------------
+  # PHP — style, static analysis, tests
+  # -------------------------------------------------------------------------
+  php:
+    name: PHP · ${{ matrix.suite }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [lint, analyse, test]
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: my_books
+          POSTGRES_USER: my_books
+          POSTGRES_PASSWORD: my_books
+          POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U my_books"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: pdo_pgsql, redis, gmp, bcmath, intl, pcntl, zip, sockets, pcov
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      # ---- lint ------------------------------------------------------------
+      - name: Code style (Pint)
+        if: matrix.suite == 'lint'
+        run: composer lint
+
+      # ---- analyse ---------------------------------------------------------
+      - name: Static analysis (Larastan)
+        if: matrix.suite == 'analyse'
+        run: composer analyse
+
+      # ---- test ------------------------------------------------------------
+      - name: Create test database with the two-role setup
+        if: matrix.suite == 'test'
+        env:
+          PGPASSWORD: my_books
+        run: |
+          psql -h localhost -U my_books -d my_books -f docker/postgres/init/01-app-role.sql
+          psql -h localhost -U my_books -d my_books -f docker/postgres/init/02-tenant-functions.sql
+          psql -h localhost -U my_books -d postgres  -f docker/postgres/init/03-test-database.sql
+
+      - name: Prepare application
+        if: matrix.suite == 'test'
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+
+      - name: Verify migrations apply and roll back cleanly
+        if: matrix.suite == 'test'
+        env:
+          DB_HOST: localhost
+          DB_DATABASE: my_books_test
+          DB_USERNAME: my_books
+          DB_PASSWORD: my_books
+        run: |
+          php artisan migrate --force --database=pgsql_owner
+          php artisan migrate:rollback --force --database=pgsql_owner
+          php artisan migrate --force --database=pgsql_owner
+
+      - name: Tests (Pest)
+        if: matrix.suite == 'test'
+        env:
+          DB_HOST: localhost
+          REDIS_HOST: localhost
+        run: ./vendor/bin/pest --parallel --coverage --min=70 --colors=always
+
+      - name: Accounting invariants
+        if: matrix.suite == 'test'
+        env:
+          DB_HOST: localhost
+          REDIS_HOST: localhost
+        run: ./vendor/bin/pest --testsuite=Accounting --colors=always
+
+      - name: Dependency audit
+        if: matrix.suite == 'test'
+        run: composer audit
+
+  # -------------------------------------------------------------------------
+  # Frontend — types, lint, format, build
+  # -------------------------------------------------------------------------
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type check, lint, format
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+  # -------------------------------------------------------------------------
+  # Container — the production image must build
+  # -------------------------------------------------------------------------
+  image:
+    name: Production image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [php, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build production target
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/app/Dockerfile
+          target: prod
+          push: false
+          tags: my-books/app:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

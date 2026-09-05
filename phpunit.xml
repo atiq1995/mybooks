@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Tests run against REAL PostgreSQL — never SQLite.
+
+    Constraints, triggers and row-level security are part of the logic under
+    test. A suite that swaps them out for an in-memory database proves the
+    application works against a database it will never run on.
+
+    Suites:
+      Unit        pure functions, no database
+      Feature     HTTP and domain behaviour, real Postgres, parallel-safe
+      Accounting  ledger invariants — asserts database-wide state, runs serially
+      Browser     end-to-end through a real browser against the running app
+
+    Connection role in tests
+    ────────────────────────
+    Tests connect as the schema OWNER, so RefreshDatabase can migrate and
+    fixtures can be created without establishing tenant context for every
+    factory call. The owner bypasses RLS, so RLS is exercised explicitly:
+    tests/Feature/Tenancy/RowLevelSecurityTest switches to the application
+    role with SET ROLE and asserts what production would actually see.
+    The application-layer scope (OrganizationScope) is unaffected by role and
+    is tested in every Feature test that touches an organisation-owned model.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         failOnRisky="true"
+         failOnWarning="true"
+         cacheDirectory=".phpunit.cache"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+        <testsuite name="Accounting">
+            <directory>tests/Accounting</directory>
+        </testsuite>
+        <testsuite name="Browser">
+            <directory>tests/Browser</directory>
+        </testsuite>
+    </testsuites>
+
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+        <exclude>
+            <!-- Fortify's published stubs are vendor code we have not changed. -->
+            <directory>app/Actions/Fortify</directory>
+        </exclude>
+    </source>
+
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <!-- Exactly 32 bytes once decoded: AES-256-CBC accepts nothing else. -->
+        <env name="APP_KEY" value="base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=" force="true"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="APP_DEBUG" value="true"/>
+
+        <!-- Fast hashing in tests. argon2id is deliberately slow in production;
+             a test suite creating hundreds of users must not pay that price. -->
+        <env name="HASH_DRIVER" value="bcrypt" force="true"/>
+        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
+
+        <!--
+            force="true" is load-bearing. The container injects DB_* for the
+            development database; without force, PHPUnit defers to those and
+            RefreshDatabase would try to drop the DEVELOPMENT schema. (It would
+            fail — the app role owns nothing — but a test run must never even
+            attempt it.)
+        -->
+        <env name="DB_CONNECTION" value="pgsql" force="true"/>
+        <env name="DB_HOST" value="postgres" force="true"/>
+        <env name="DB_PORT" value="5432" force="true"/>
+        <env name="DB_DATABASE" value="my_books_test" force="true"/>
+        <env name="DB_USERNAME" value="my_books" force="true"/>
+        <env name="DB_PASSWORD" value="my_books" force="true"/>
+        <env name="DB_OWNER_USERNAME" value="my_books" force="true"/>
+        <env name="DB_OWNER_PASSWORD" value="my_books" force="true"/>
+        <env name="DB_URL" value="" force="true"/>
+
+        <!-- Tests do not write to the development log. Failures surface in the test output. -->
+        <env name="LOG_CHANNEL" value="null" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="BROADCAST_CONNECTION" value="null" force="true"/>
+        <env name="MAIL_MAILER" value="array" force="true"/>
+        <env name="FILESYSTEM_DISK" value="local" force="true"/>
+
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="NIGHTWATCH_ENABLED" value="false"/>
+    </php>
+</phpunit>

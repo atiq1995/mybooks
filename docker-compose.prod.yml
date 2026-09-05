@@ -1,0 +1,121 @@
+# ===========================================================================
+# My Books — production overlay
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Applied on top of docker-compose.yml. It changes exactly four things:
+#
+#   1. builds the `prod` target — source and compiled assets baked in
+#   2. removes the source bind mount — the image IS the deployment
+#   3. drops development-only services — Vite, Mailpit
+#   4. stops publishing internal ports — PostgreSQL, Redis, MinIO console
+#
+# Everything else — the services, their commands, the two-role database —
+# is identical to development, which is the point of running the real
+# topology locally.
+#
+# Before first launch, work through SECURITY.md §10. Every value below marked
+# CHANGE-ME must be replaced; the defaults are for development only.
+# ===========================================================================
+
+x-app-prod: &app-prod
+  build:
+    target: prod
+  image: my-books/app:${MY_BOOKS_VERSION:-latest}
+  # No source bind mount. Only the writable paths are volumes.
+  volumes:
+    - app-storage:/app/storage
+  environment:
+    APP_ENV: production
+    APP_DEBUG: "false"
+    APP_URL: https://${MY_BOOKS_DOMAIN:?set MY_BOOKS_DOMAIN}
+    APP_KEY: ${APP_KEY:?generate with: php artisan key:generate --show}
+
+    # Caddy provisions TLS for this name automatically.
+    SERVER_NAME: ${MY_BOOKS_DOMAIN}
+
+    DB_PASSWORD: ${DB_PASSWORD:?CHANGE-ME}
+    DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?CHANGE-ME}
+    REDIS_PASSWORD: ${REDIS_PASSWORD:?CHANGE-ME}
+    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?CHANGE-ME}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?CHANGE-ME}
+    AWS_URL: https://${MY_BOOKS_DOMAIN}/storage
+
+    SESSION_SECURE_COOKIE: "true"
+    MY_BOOKS_TRUSTED_HOSTS: ${MY_BOOKS_DOMAIN}
+
+    # Real SMTP. Mailpit does not exist in production.
+    MAIL_MAILER: smtp
+    MAIL_HOST: ${MAIL_HOST:?CHANGE-ME}
+    MAIL_PORT: ${MAIL_PORT:-587}
+    MAIL_USERNAME: ${MAIL_USERNAME:?CHANGE-ME}
+    MAIL_PASSWORD: ${MAIL_PASSWORD:?CHANGE-ME}
+    MAIL_ENCRYPTION: tls
+    MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:?CHANGE-ME}
+
+    LOG_LEVEL: info
+
+services:
+  app:
+    <<: *app-prod
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - app-storage:/app/storage
+      - caddy-data:/data
+      - caddy-config:/config
+
+  horizon:
+    <<: *app-prod
+    ports: []
+
+  scheduler:
+    <<: *app-prod
+    ports: []
+
+  migrate:
+    <<: *app-prod
+    ports: []
+    command: ["php", "artisan", "migrate", "--force", "--database=pgsql_owner"]
+
+  # ---- development-only services are removed ------------------------------
+  vite: !reset null
+  mailpit: !reset null
+
+  # ---- internal services stop publishing ports ----------------------------
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?CHANGE-ME}
+
+  redis:
+    ports: !reset []
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:?CHANGE-ME}
+
+  minio:
+    # The S3 API stays reachable to the app over the internal network only;
+    # the console is not exposed at all.
+    ports: !reset []
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?CHANGE-ME}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?CHANGE-ME}
+
+  minio-init:
+    entrypoint: >
+      sh -c "mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
+             mc mb --ignore-existing local/my-books &&
+             mc anonymous set none local/my-books"
+
+volumes:
+  app-storage:
+  caddy-data:
+  caddy-config:

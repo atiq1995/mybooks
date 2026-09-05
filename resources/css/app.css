@@ -1,0 +1,556 @@
+/* ===========================================================================
+   My Books — design tokens
+   ---------------------------------------------------------------------------
+   Every colour, size, weight and radius in the product is defined here and
+   nowhere else. A raw hex value or pixel measurement in a component is a bug,
+   because it is the one thing that cannot be re-themed, re-scaled, or
+   audited for contrast.
+
+   Layers, in order:
+     1. @theme          the raw palette and scales. Tailwind generates
+                        utilities from these (bg-brand-600, text-sm, ...).
+     2. :root           semantic roles pointing at palette values.
+     3. [data-theme]    the same roles, re-pointed for dark.
+     4. @theme inline   exposes the roles as utilities (bg-surface, ...).
+                        `inline` matters: it makes the utility reference the
+                        variable rather than copy its value, so a theme swap
+                        at runtime actually repaints.
+
+   Fonts are self-hosted. A privacy-first accounting product must not tell
+   Google's CDN who is looking at their books.
+   =========================================================================== */
+
+@import 'tailwindcss';
+
+@import '@fontsource-variable/ibm-plex-sans';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+/* Dark mode follows an explicit attribute, not the OS. Accountants work in
+   whichever mode they chose, and a report printed from a dark screen must
+   still come out on white paper. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* ---------------------------------------------------------------------------
+   1. PALETTE AND SCALES
+   --------------------------------------------------------------------------- */
+@theme {
+  /* -- Typeface ---------------------------------------------------------
+       IBM Plex Sans is drawn for dense data interfaces and ships true
+       tabular figures, which is the whole reason a column of money lines up.
+       IBM Plex Mono carries document numbers, account codes and audit ids. */
+  --font-sans:
+    'IBM Plex Sans Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+
+  /* -- Type scale -------------------------------------------------------
+       Base is 14px, not 16px. Accounting software is scanned, not read: a
+       list page has to show twenty rows without scrolling, and every mature
+       product in this category sits at 13-14px for exactly that reason. */
+  --text-2xs: 0.6875rem; /* 11px — dense table meta, column labels      */
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem; /* 12px — badges, helper text, breadcrumbs     */
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.8125rem; /* 13px — table body                          */
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem; /* 14px — application default                 */
+  --text-base--line-height: 1.375rem;
+  --text-md: 0.9375rem; /* 15px — form inputs, emphasis               */
+  --text-md--line-height: 1.5rem;
+  --text-lg: 1.0625rem; /* 17px — card titles                         */
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.25rem; /* 20px — page titles                         */
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem; /* 24px — dashboard figures                   */
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem; /* 30px — headline metrics, empty states      */
+  --text-3xl--line-height: 2.25rem;
+
+  /* -- Brand ------------------------------------------------------------
+       A deep, desaturated teal. Chosen because it reads as considered rather
+       than loud, holds contrast on both grounds, and is nobody else's colour
+       in this category. */
+  --color-brand-50: #edf7f4;
+  --color-brand-100: #d2ece4;
+  --color-brand-200: #a8d9cc;
+  --color-brand-300: #74bfad;
+  --color-brand-400: #45a18c;
+  --color-brand-500: #1f8570;
+  --color-brand-600: #0f6e5c;
+  --color-brand-700: #0c584a;
+  --color-brand-800: #0d463b;
+  --color-brand-900: #0c3931;
+  --color-brand-950: #04211c;
+
+  /* -- Neutral ----------------------------------------------------------
+       Biased very slightly green so it sits with the brand rather than
+       fighting it. A pure grey next to a teal reads as an accident. */
+  --color-neutral-0: #ffffff;
+  --color-neutral-25: #fafbfa;
+  --color-neutral-50: #f5f7f6;
+  --color-neutral-100: #edefee;
+  --color-neutral-200: #dfe3e1;
+  --color-neutral-300: #c6ccc9;
+  --color-neutral-400: #98a09d;
+  --color-neutral-500: #6d7672;
+  --color-neutral-600: #545c58;
+  --color-neutral-700: #414845;
+  --color-neutral-800: #2a302e;
+  --color-neutral-900: #1a1f1e;
+  --color-neutral-950: #0f1312;
+
+  /* -- Status ------------------------------------------------------------
+       Semantic only. These never decorate; they carry meaning, and they are
+       deliberately distinct from the brand teal so "brand-coloured" never
+       gets mistaken for "successful". */
+  --color-success-50: #eaf6ee;
+  --color-success-100: #cdead7;
+  --color-success-500: #1f9d4d;
+  --color-success-600: #17803d;
+  --color-success-700: #146430;
+  --color-success-900: #0d3b1d;
+
+  --color-warning-50: #fdf4e7;
+  --color-warning-100: #f9e5c4;
+  --color-warning-500: #d9820b;
+  --color-warning-600: #b45309;
+  --color-warning-700: #8c4008;
+  --color-warning-900: #4d2404;
+
+  --color-danger-50: #fdefee;
+  --color-danger-100: #fbdcd9;
+  --color-danger-500: #d92d20;
+  --color-danger-600: #b42318;
+  --color-danger-700: #8e1c13;
+  --color-danger-900: #4f100b;
+
+  --color-info-50: #eef3fd;
+  --color-info-100: #d8e3fa;
+  --color-info-500: #2970e6;
+  --color-info-600: #175cd3;
+  --color-info-700: #1249a6;
+  --color-info-900: #0a2a60;
+
+  /* -- Radius -----------------------------------------------------------
+       Restrained on purpose. Heavy rounding on a data table makes rows look
+       like buttons and costs horizontal space in every cell. */
+  --radius-xs: 0.125rem; /* 2px  */
+  --radius-sm: 0.1875rem; /* 3px  */
+  --radius-DEFAULT: 0.3125rem; /* 5px */
+  --radius-md: 0.375rem; /* 6px  */
+  --radius-lg: 0.5rem; /* 8px  */
+  --radius-xl: 0.75rem; /* 12px */
+
+  /* -- Elevation --------------------------------------------------------
+       Three levels, each with a job: raised (cards), overlay (dropdowns,
+       popovers), modal (dialogs, drawers). Nothing else casts a shadow. */
+  --shadow-raised: 0 1px 2px 0 rgb(16 24 22 / 0.04), 0 1px 3px 0 rgb(16 24 22 / 0.06);
+  --shadow-overlay: 0 4px 6px -2px rgb(16 24 22 / 0.05), 0 12px 16px -4px rgb(16 24 22 / 0.1);
+  --shadow-modal: 0 8px 8px -4px rgb(16 24 22 / 0.04), 0 20px 24px -4px rgb(16 24 22 / 0.14);
+
+  /* -- Layout -----------------------------------------------------------
+       Named because they are referenced from several places and must agree:
+       the sidebar's width is also the main content's left offset. */
+  --spacing-sidebar: 15rem; /* 240px expanded  */
+  --spacing-sidebar-collapsed: 3.5rem; /* 56px icon rail */
+  --spacing-topbar: 3.5rem; /* 56px            */
+  --spacing-page: 80rem; /* max content width */
+
+  /* -- Motion -----------------------------------------------------------
+       Fast and few. An accounting app is used all day; animation that
+       delights on first sight becomes friction by the fiftieth invoice. */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --animate-duration-fast: 120ms;
+  --animate-duration-base: 180ms;
+}
+
+/* ---------------------------------------------------------------------------
+   2. SEMANTIC ROLES — LIGHT
+   Components reference these, never the palette above. That indirection is
+   what makes dark mode a token swap instead of a rewrite.
+   --------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  /* Surfaces, from furthest back to closest to the reader */
+  --surface-sunken: var(--color-neutral-50);
+  --surface-base: var(--color-neutral-0);
+  --surface-raised: var(--color-neutral-0);
+  --surface-overlay: var(--color-neutral-0);
+  --surface-hover: var(--color-neutral-50);
+  --surface-active: var(--color-neutral-100);
+  --surface-selected: var(--color-brand-50);
+  --surface-disabled: var(--color-neutral-100);
+
+  /* The application chrome is deliberately darker than the content area,
+       so the workspace reads as the bright, focused part of the screen. */
+  --surface-sidebar: var(--color-neutral-900);
+  --surface-sidebar-hover: var(--color-neutral-800);
+  --surface-sidebar-active: var(--color-brand-800);
+
+  /* Text */
+  --text-primary: var(--color-neutral-900);
+  --text-secondary: var(--color-neutral-600);
+  --text-muted: var(--color-neutral-500);
+  --text-disabled: var(--color-neutral-400);
+  --text-inverse: var(--color-neutral-0);
+  --text-link: var(--color-brand-700);
+  --text-on-brand: var(--color-neutral-0);
+
+  --text-sidebar: var(--color-neutral-300);
+  --text-sidebar-active: var(--color-neutral-0);
+  --text-sidebar-muted: var(--color-neutral-500);
+
+  /* Borders */
+  --border-subtle: var(--color-neutral-200);
+  --border-DEFAULT: var(--color-neutral-300);
+  --border-strong: var(--color-neutral-400);
+  --border-brand: var(--color-brand-600);
+  --border-danger: var(--color-danger-500);
+
+  /* Interactive */
+  --brand-solid: var(--color-brand-600);
+  --brand-solid-hover: var(--color-brand-700);
+  --brand-solid-active: var(--color-brand-800);
+  --brand-subtle: var(--color-brand-50);
+  --brand-text: var(--color-brand-700);
+
+  /* Focus. One ring, everywhere, always visible — this is an
+       accessibility requirement, not a style choice. */
+  --focus-ring: var(--color-brand-500);
+  --focus-ring-offset: var(--color-neutral-0);
+
+  /* Status: each has a subtle fill, a border, and a readable foreground */
+  --status-success-bg: var(--color-success-50);
+  --status-success-border: var(--color-success-100);
+  --status-success-text: var(--color-success-700);
+  --status-warning-bg: var(--color-warning-50);
+  --status-warning-border: var(--color-warning-100);
+  --status-warning-text: var(--color-warning-700);
+  --status-danger-bg: var(--color-danger-50);
+  --status-danger-border: var(--color-danger-100);
+  --status-danger-text: var(--color-danger-700);
+  --status-info-bg: var(--color-info-50);
+  --status-info-border: var(--color-info-100);
+  --status-info-text: var(--color-info-700);
+  --status-neutral-bg: var(--color-neutral-100);
+  --status-neutral-border: var(--color-neutral-200);
+  --status-neutral-text: var(--color-neutral-600);
+
+  /* -- Accounting-specific --------------------------------------------
+       Money is not decorated. A positive figure takes the ordinary text
+       colour, because colouring every number green is noise; only a
+       negative figure earns a colour, because it is an exception worth
+       seeing. Debit and credit get muted tints for optional emphasis in
+       ledger views, never as the only signal. */
+  --amount-positive: var(--color-neutral-900);
+  --amount-negative: var(--color-danger-600);
+  --amount-zero: var(--color-neutral-400);
+  --ledger-debit: var(--color-info-700);
+  --ledger-credit: var(--color-brand-700);
+
+  /* -- Density ----------------------------------------------------------
+       Set on a container; every table inside inherits it. Compact is the
+       default because the primary user is scanning, not browsing. */
+  --row-height: 2.25rem; /* 36px compact     */
+  --row-padding-x: 0.75rem;
+  --row-padding-y: 0.4375rem;
+}
+
+[data-density='comfortable'] {
+  --row-height: 2.875rem; /* 46px             */
+  --row-padding-y: 0.75rem;
+}
+
+/* ---------------------------------------------------------------------------
+   3. SEMANTIC ROLES — DARK
+   Not an inversion. Dark surfaces are lifted as they come forward (the
+   opposite of light, where closer means brighter-then-shadowed), and the
+   brand shifts lighter so it still passes contrast on a dark ground.
+   --------------------------------------------------------------------------- */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-sunken: #0b0f0e;
+  --surface-base: var(--color-neutral-950);
+  --surface-raised: #161b1a;
+  --surface-overlay: #1c2221;
+  --surface-hover: #1c2221;
+  --surface-active: #232a28;
+  --surface-selected: var(--color-brand-950);
+  --surface-disabled: #1c2221;
+
+  --surface-sidebar: #0b0f0e;
+  --surface-sidebar-hover: #1c2221;
+  --surface-sidebar-active: var(--color-brand-900);
+
+  --text-primary: var(--color-neutral-100);
+  --text-secondary: var(--color-neutral-300);
+  --text-muted: var(--color-neutral-400);
+  --text-disabled: var(--color-neutral-600);
+  --text-inverse: var(--color-neutral-950);
+  --text-link: var(--color-brand-300);
+  --text-on-brand: var(--color-neutral-0);
+
+  --text-sidebar: var(--color-neutral-400);
+  --text-sidebar-active: var(--color-neutral-0);
+  --text-sidebar-muted: var(--color-neutral-600);
+
+  --border-subtle: #232a28;
+  --border-DEFAULT: #2f3735;
+  --border-strong: #414845;
+  --border-brand: var(--color-brand-500);
+  --border-danger: var(--color-danger-500);
+
+  --brand-solid: var(--color-brand-500);
+  --brand-solid-hover: var(--color-brand-400);
+  --brand-solid-active: var(--color-brand-300);
+  --brand-subtle: var(--color-brand-950);
+  --brand-text: var(--color-brand-300);
+
+  --focus-ring: var(--color-brand-400);
+  --focus-ring-offset: var(--color-neutral-950);
+
+  --status-success-bg: #0d2a18;
+  --status-success-border: #164e2a;
+  --status-success-text: #6ede95;
+  --status-warning-bg: #2e1f08;
+  --status-warning-border: #5c3d0d;
+  --status-warning-text: #f0b360;
+  --status-danger-bg: #2f100d;
+  --status-danger-border: #5e211a;
+  --status-danger-text: #f2938a;
+  --status-info-bg: #0f1e3d;
+  --status-info-border: #1c3a75;
+  --status-info-text: #8ab4f8;
+  --status-neutral-bg: #232a28;
+  --status-neutral-border: #2f3735;
+  --status-neutral-text: var(--color-neutral-300);
+
+  --amount-positive: var(--color-neutral-100);
+  --amount-negative: #f2938a;
+  --amount-zero: var(--color-neutral-600);
+  --ledger-debit: #8ab4f8;
+  --ledger-credit: var(--color-brand-300);
+
+  /* Shadows do almost nothing on a dark ground; borders carry elevation
+       instead, so the values are reduced rather than left to muddy. */
+  --shadow-raised: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-overlay: 0 4px 6px -2px rgb(0 0 0 / 0.35), 0 12px 16px -4px rgb(0 0 0 / 0.45);
+  --shadow-modal: 0 8px 8px -4px rgb(0 0 0 / 0.35), 0 20px 24px -4px rgb(0 0 0 / 0.55);
+}
+
+/* ---------------------------------------------------------------------------
+   4. ROLES AS UTILITIES
+   `inline` keeps the reference live, so bg-surface-base follows the theme.
+   --------------------------------------------------------------------------- */
+@theme inline {
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-base: var(--surface-base);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+  --color-surface-selected: var(--surface-selected);
+  --color-surface-disabled: var(--surface-disabled);
+  --color-surface-sidebar: var(--surface-sidebar);
+  --color-surface-sidebar-hover: var(--surface-sidebar-hover);
+  --color-surface-sidebar-active: var(--surface-sidebar-active);
+
+  --color-content: var(--text-primary);
+  --color-content-secondary: var(--text-secondary);
+  --color-content-muted: var(--text-muted);
+  --color-content-disabled: var(--text-disabled);
+  --color-content-inverse: var(--text-inverse);
+  --color-content-link: var(--text-link);
+  --color-content-on-brand: var(--text-on-brand);
+  --color-content-sidebar: var(--text-sidebar);
+  --color-content-sidebar-active: var(--text-sidebar-active);
+  --color-content-sidebar-muted: var(--text-sidebar-muted);
+
+  --color-line-subtle: var(--border-subtle);
+  --color-line: var(--border-DEFAULT);
+  --color-line-strong: var(--border-strong);
+  --color-line-brand: var(--border-brand);
+  --color-line-danger: var(--border-danger);
+
+  --color-brand: var(--brand-solid);
+  --color-brand-hover: var(--brand-solid-hover);
+  --color-brand-active: var(--brand-solid-active);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-brand-text: var(--brand-text);
+
+  --color-focus: var(--focus-ring);
+
+  /* Status trios. Each tone exposes a fill, a foreground and a border, so a
+       badge or banner is always built from a set that was checked for
+       contrast together rather than assembled by eye. */
+  --color-status-neutral: var(--status-neutral-bg);
+  --color-status-neutral-fg: var(--status-neutral-text);
+  --color-status-neutral-line: var(--status-neutral-border);
+  --color-status-success: var(--status-success-bg);
+  --color-status-success-fg: var(--status-success-text);
+  --color-status-success-line: var(--status-success-border);
+  --color-status-warning: var(--status-warning-bg);
+  --color-status-warning-fg: var(--status-warning-text);
+  --color-status-warning-line: var(--status-warning-border);
+  --color-status-danger: var(--status-danger-bg);
+  --color-status-danger-fg: var(--status-danger-text);
+  --color-status-danger-line: var(--status-danger-border);
+  --color-status-info: var(--status-info-bg);
+  --color-status-info-fg: var(--status-info-text);
+  --color-status-info-line: var(--status-info-border);
+
+  --color-amount-positive: var(--amount-positive);
+  --color-amount-negative: var(--amount-negative);
+  --color-amount-zero: var(--amount-zero);
+  --color-ledger-debit: var(--ledger-debit);
+  --color-ledger-credit: var(--ledger-credit);
+}
+
+/* ---------------------------------------------------------------------------
+   5. BASE
+   --------------------------------------------------------------------------- */
+@layer base {
+  * {
+    border-color: var(--border-subtle);
+  }
+
+  html {
+    /* 14px base. Everything above scales from here, including a user's
+           browser zoom, which is why the scale is in rem throughout. */
+    font-size: 100%;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--surface-sunken);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Plex's default figures are proportional; in an accounting product
+           the columns must align by default and opt out, not opt in. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* One focus treatment for the entire application. */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  /* ...but never a focus ring from a mouse click. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Headings inherit weight from context rather than the browser's bold. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: 600;
+    text-wrap: balance;
+    color: var(--text-primary);
+  }
+
+  /* Money, codes, dates and ids all sit in columns somewhere. */
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  ::placeholder {
+    color: var(--text-disabled);
+  }
+
+  /* Chrome's autofill yellow destroys a considered form. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--text-primary);
+    -webkit-box-shadow: 0 0 0 1000px var(--surface-base) inset;
+    caret-color: var(--text-primary);
+  }
+
+  /* Scrollbars, so a long ledger does not get a chunky OS bar through it. */
+  @supports (scrollbar-width: thin) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-strong) transparent;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   6. UTILITIES
+   Only patterns that recur across modules and cannot be expressed by
+   composing existing utilities.
+   --------------------------------------------------------------------------- */
+@utility numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* A table that scrolls sideways inside its own frame, so the page body
+   never does. Applied by DataTable; available to bespoke tables too. */
+@utility table-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+/* ---------------------------------------------------------------------------
+   7. MOTION
+   Honour the operating system. Someone who has asked for less motion has
+   usually asked for a reason.
+   --------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   8. PRINT
+   Statements, invoices and reports get printed. This is not an afterthought
+   in accounting software — it is a delivery channel.
+   --------------------------------------------------------------------------- */
+@media print {
+  :root {
+    color-scheme: light;
+  }
+
+  [data-print='hide'],
+  nav[aria-label='Main'],
+  header[data-app-header] {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+    font-size: 11pt;
+  }
+
+  /* Never break a total away from the rows that produced it. */
+  tfoot,
+  [data-print='keep-together'] {
+    break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+}

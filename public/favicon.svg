@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- My Books mark: a ledger page split into debit and credit, drawn at equal weight. -->
+  <rect x="2" y="3" width="28" height="26" rx="5" fill="#0f6e5c"/>
+  <path d="M16 9v14" stroke="#d2ece4" stroke-width="1.75" stroke-linecap="round"/>
+  <path d="M7.5 13.5h5M7.5 18h5" stroke="#d2ece4" stroke-width="1.75" stroke-linecap="round"/>
+  <path d="M19.5 13.5h5M19.5 18h5" stroke="#d2ece4" stroke-width="1.75" stroke-linecap="round"/>
+</svg>

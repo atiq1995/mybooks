@@ -1,0 +1,259 @@
+# ===========================================================================
+# My Books — development stack
+#
+#   docker compose up -d              start everything
+#   docker compose run --rm migrate   apply schema changes (never automatic)
+#   docker compose exec app bash      a shell with php, composer, artisan
+#   docker compose logs -f app        follow application logs
+#
+# Production uses this file plus docker-compose.prod.yml, which swaps the
+# build target, drops the dev-only services and removes the source bind
+# mount. See DEPLOYMENT.md.
+# ===========================================================================
+
+name: my-books
+
+# ---------------------------------------------------------------------------
+# Every PHP process runs the same image with the same environment. Only the
+# command differs, so a queue worker can never drift from the web tier.
+# ---------------------------------------------------------------------------
+x-app: &app
+  build:
+    context: .
+    dockerfile: docker/app/Dockerfile
+    target: dev
+  image: my-books/app:dev
+  # Laravel configuration comes from the bind-mounted .env (seeded from
+  # .env.example on first boot), NOT from here. Two reasons:
+  #
+  #   1. One source of truth. Every PHP service shares the same file, so a
+  #      queue worker cannot drift from the web tier.
+  #   2. Tests. Values injected here become real process environment, which
+  #      Laravel reads ahead of anything phpunit.xml sets — so the test suite
+  #      would silently run against the development database.
+  #
+  # Only container-level settings that are not Laravel's belong here.
+  environment:
+    # Caddy listen address; production sets a hostname for automatic TLS.
+    SERVER_NAME: ":80"
+    # Tells the entrypoint to run first-boot conveniences (composer install,
+    # .env seeding, key generation) and to NEVER build production caches.
+    # The production overlay does not set this.
+    MY_BOOKS_DEV: "1"
+  volumes:
+    # Source is bind-mounted so edits take effect without a rebuild.
+    - .:/app
+    # ...but vendor/ and node_modules/ stay in the container, because a
+    # Linux-built vendor tree and a Windows host do not mix.
+    - vendor:/app/vendor
+    - node_modules:/app/node_modules
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks: [my-books]
+
+services:
+  # -------------------------------------------------------------------------
+  # Web tier — FrankenPHP (Caddy + PHP 8.4 in one process)
+  # -------------------------------------------------------------------------
+  app:
+    <<: *app
+    container_name: my-books-app
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # Queue tier — Horizon supervises the workers
+  # -------------------------------------------------------------------------
+  horizon:
+    <<: *app
+    container_name: my-books-horizon
+    command: ["php", "artisan", "horizon"]
+    ports: []
+    # Horizon must terminate gracefully so an in-flight job is not killed
+    # mid-transaction.
+    stop_signal: SIGTERM
+    stop_grace_period: 60s
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # Scheduler — recurring invoices, statement reminders, FX rate refresh
+  # -------------------------------------------------------------------------
+  scheduler:
+    <<: *app
+    container_name: my-books-scheduler
+    command: ["php", "artisan", "schedule:work"]
+    ports: []
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # Migration job — run once, on demand, never on boot
+  # -------------------------------------------------------------------------
+  # Runs as the schema OWNER, not as the application role. A migration must
+  # be able to create tables and bypass row-level security; a web request
+  # must never be able to do either.
+  migrate:
+    <<: *app
+    container_name: my-books-migrate
+    command: ["php", "artisan", "migrate", "--force", "--database=pgsql_owner"]
+    ports: []
+    restart: "no"
+    profiles: ["tools"]
+
+  # -------------------------------------------------------------------------
+  # Vite dev server — HMR for the React/Inertia frontend
+  # -------------------------------------------------------------------------
+  vite:
+    image: node:24-alpine
+    container_name: my-books-vite
+    working_dir: /app
+    command: >
+      sh -c "if [ ! -d node_modules/.vite ]; then npm install; fi &&
+             npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    networks: [my-books]
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # PostgreSQL — the system of record
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: my-books-postgres
+    environment:
+      POSTGRES_DB: my_books
+      POSTGRES_USER: my_books
+      POSTGRES_PASSWORD: my_books
+      # Deterministic collation and byte-exact comparison, so ordering in
+      # tests matches ordering in production regardless of host locale.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - postgres
+      # Financial writes are small and frequent; these are modest, safe
+      # defaults for a single-node deployment. Tune from pg_stat, not taste.
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - max_connections=100
+      # Log any statement slower than a quarter second — reports that creep
+      # should be noticed early, while the ledger is still small.
+      - -c
+      - log_min_duration_statement=250
+      - -c
+      - track_io_timing=on
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Init scripts run once, on an empty data directory only.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U my_books -d my_books"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks: [my-books]
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # Redis — cache, sessions, queues, rate limits. Never a source of truth.
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: my-books-redis
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      # Queued jobs are real work; losing them to an eviction would silently
+      # drop invoice emails. Never evict — fail loudly instead.
+      - --maxmemory-policy
+      - noeviction
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [my-books]
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # MinIO — S3-compatible object storage for receipts, attachments, PDFs
+  # -------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: my-books-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: my_books
+      MINIO_ROOT_PASSWORD: my_books_secret
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [my-books]
+    restart: unless-stopped
+
+  # Creates the bucket on first run, then exits. Documents are private:
+  # the application issues short-lived presigned URLs instead.
+  minio-init:
+    image: minio/mc:latest
+    container_name: my-books-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "mc alias set local http://minio:9000 my_books my_books_secret &&
+             mc mb --ignore-existing local/my-books &&
+             mc anonymous set none local/my-books &&
+             echo 'bucket my-books ready (private)'"
+    networks: [my-books]
+    restart: "no"
+
+  # -------------------------------------------------------------------------
+  # Mailpit — captures every outbound mail in development. Nothing leaves
+  # the machine, so testing invoice delivery cannot email a real customer.
+  # -------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: my-books-mailpit
+    environment:
+      MP_MAX_MESSAGES: "500"
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # web UI
+    networks: [my-books]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  vendor:
+  node_modules:
+
+networks:
+  my-books:
+    driver: bridge
