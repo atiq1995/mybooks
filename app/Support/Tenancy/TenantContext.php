@@ -38,14 +38,47 @@ final class TenantContext
      */
     private int $unscopedDepth = 0;
 
+    /**
+     * Publishes the active organisation to the database layer.
+     *
+     * Registered once, in AppServiceProvider. Without it the two isolation
+     * layers can silently diverge mid-request: the Eloquent scope would follow
+     * a newly-set organisation while PostgreSQL still enforced the previous
+     * one, and every write would be refused by a policy for reasons that look
+     * nothing like the cause.
+     *
+     * @var (Closure(?string): void)|null
+     */
+    private ?Closure $publisher = null;
+
+    /**
+     * @param  (Closure(?string): void)|null  $publisher
+     */
+    public function publishUsing(?Closure $publisher): void
+    {
+        $this->publisher = $publisher;
+    }
+
     public function set(Organization $organization): void
     {
         $this->organization = $organization;
+        $this->publish();
     }
 
     public function clear(): void
     {
         $this->organization = null;
+        $this->publish();
+    }
+
+    /**
+     * Keep the database layer in step with this one.
+     */
+    private function publish(): void
+    {
+        if ($this->publisher instanceof Closure) {
+            ($this->publisher)($this->id());
+        }
     }
 
     public function has(): bool
@@ -120,11 +153,13 @@ final class TenantContext
     {
         $previous = $this->organization;
         $this->organization = $organization;
+        $this->publish();
 
         try {
             return $callback();
         } finally {
             $this->organization = $previous;
+            $this->publish();
         }
     }
 }

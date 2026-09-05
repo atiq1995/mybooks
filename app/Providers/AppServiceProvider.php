@@ -24,7 +24,30 @@ final class AppServiceProvider extends ServiceProvider
          * one and cannot silently inherit whichever organisation happened to
          * be active last.
          */
-        $this->app->singleton(TenantContext::class);
+        $this->app->singleton(TenantContext::class, function (): TenantContext {
+            $context = new TenantContext;
+
+            /*
+             * Keep PostgreSQL's view of the active organisation in step with
+             * the application's, automatically. Whenever tenant context
+             * changes — a request resolving it, an Action switching to a
+             * newly-created organisation, a job running as a tenant — the
+             * row-level security setting follows.
+             *
+             * Without this the two isolation layers diverge mid-request and
+             * writes get refused by a policy for reasons that look nothing
+             * like the cause.
+             */
+            $context->publishUsing(function (?string $organizationId): void {
+                // Bound, never interpolated.
+                DB::statement(
+                    "select set_config('app.organization_id', ?, false)",
+                    [$organizationId ?? ''],
+                );
+            });
+
+            return $context;
+        });
     }
 
     public function boot(): void

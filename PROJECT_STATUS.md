@@ -28,9 +28,33 @@ Where the work stands. Read after `CLAUDE.md`, before doing anything.
       actor, redacts secrets, stores money as a decimal string, diffs only what
       changed. Immutability enforced by model and database trigger.
 - [x] 28 new tests covering the RBAC matrix and the audit trail.
+- [x] **Organisation creation** — action, form request, form. Choosing a
+      country moves currency and financial year with it (GB → GBP/April,
+      PK → PKR/July, verified in a browser). The irreversible choice — base
+      currency — is called out where the decision is made.
+- [x] **Setup wizard** — business details with PK-specific NTN/STRN labels,
+      a financial-year review, and finish. The two steps that need the ledger
+      (taxes, chart of accounts) are shown padlocked rather than hidden, so
+      the wizard does not change shape under users in Phase 2.
+- [x] Walked end to end in a real browser: create → set up → dashboard.
 
-Still to do this phase: organisation creation, the onboarding wizard,
-invitations, settings screens, and the browser suite.
+**Two real bugs found and fixed doing this**, both invisible to the test
+suite because it connects as the schema owner and bypasses RLS:
+
+1. `organizations` RLS had no `WITH CHECK`, so PostgreSQL reused `USING` as
+   the INSERT check — and a brand-new organisation has no membership yet.
+   Creating a set of books was impossible for real traffic. Fixed forward-only
+   in `2026_09_05_120000`, with a `SECURITY DEFINER` helper to break the
+   resulting policy recursion between organisations and memberships.
+2. `TenantContext::set()` updated the application layer but not PostgreSQL, so
+   the two isolation layers diverged mid-request and writes were refused by a
+   policy for reasons that looked nothing like the cause. The context now
+   publishes to the database automatically whenever it changes.
+
+Both now have regression tests that run as the **application role**, so this
+class of bug cannot recur silently.
+
+Still to do this phase: invitations, settings screens, and the browser suite.
 
 ---
 

@@ -13,27 +13,24 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Establishes the tenant context in BOTH isolation layers.
+ * Establishes the tenant context for the request.
  *
- * This is deliberately one middleware rather than two, because the two halves
- * are order-dependent in a way that is easy to get wrong and silent when it
- * goes wrong:
+ * Order is load-bearing and easy to get wrong:
  *
  *   1. `app.user_id` must reach PostgreSQL FIRST, because the RLS policy on
  *      `organizations` decides visibility by membership — so the very query
  *      that resolves the organisation is itself filtered by RLS, and would
  *      return nothing if the user were not yet published.
  *   2. Only then can the organisation be resolved.
- *   3. `app.organization_id` is published once it is known.
- *
- * Split across two middleware, an innocuous reordering breaks tenant
- * resolution in a way that looks like "the user has no organisations".
+ *   3. Setting it on {@see TenantContext} publishes it to PostgreSQL
+ *      automatically, so the application scope and the database policies can
+ *      never disagree about which organisation is active.
  *
  * The organisation id comes from the SESSION, never from the URL. If a caller
  * could name the organisation, isolation would depend on validating that
  * parameter perfectly on every one of several hundred routes.
  *
- * @see SECURITY.md §3
+ * @see SECURITY.md section 3
  * @see database/migrations/2026_01_01_000400_enable_row_level_security.php
  */
 final readonly class EstablishTenantContext
@@ -52,14 +49,22 @@ final readonly class EstablishTenantContext
     {
         $user = $request->user();
 
-        // Start from nothing. Nothing legitimate sets tenant context before
-        // this middleware in a web request, so anything already present is a
-        // leak from earlier in the process — and in a long-lived worker that
-        // would be someone else's organisation.
+        /*
+         * Whatever context existed before this request is restored on the way
+         * out. In production that is nothing — the container is per-request —
+         * so this is equivalent to clearing. Under a test harness, or any
+         * long-lived process that establishes a context around a request, it
+         * means this middleware borrows the context rather than destroying it.
+         */
+        $previous = $this->context->organizationOrNull();
+
+        // Start from nothing regardless. Nothing legitimate sets tenant context
+        // before this middleware in a web request, so anything already present
+        // must not be allowed to stand in for a failed resolution.
         $this->context->clear();
 
         // Step 1 — publish the user, so membership-based RLS can see them.
-        $this->publish(userId: $user?->id, organizationId: null);
+        $this->publishUser($user?->id);
 
         try {
             if ($user === null) {
@@ -92,45 +97,42 @@ final readonly class EstablishTenantContext
                     // lands on the organisation chooser, not an error page.
                     $request->session()->forget(self::SESSION_KEY);
                 } else {
-                    // Step 3 — publish the organisation to both layers.
+                    // Step 3 — publishes to PostgreSQL as a side effect.
                     $this->context->set($organization);
                     $request->session()->put(self::SESSION_KEY, $organization->getKey());
-
-                    $this->publish(
-                        userId: $user->id,
-                        organizationId: $organization->id,
-                    );
                 }
             }
 
             return $next($request);
         } finally {
             // Always, including on an exception. An error response must never
-            // leave a connection carrying somebody's organisation id.
-            $this->publish(userId: null, organizationId: null);
+            // leave a connection carrying somebody's identity.
+            if ($previous instanceof Organization) {
+                $this->context->set($previous);
+            } else {
+                $this->context->clear();
+            }
+
+            $this->publishUser(null);
         }
     }
 
     /**
-     * Publish the context to PostgreSQL for row-level security.
+     * Publish the acting user to PostgreSQL for row-level security.
      *
      * Session scope rather than `SET LOCAL`: Laravel does not wrap requests in
      * a transaction, so a LOCAL setting would be discarded before the first
      * query ran. The connection is per-request (FrankenPHP classic mode, no
-     * persistent PDO), and the `finally` above clears these regardless — which
-     * is what would stop one request's organisation leaking into the next if
+     * persistent PDO), and the `finally` above clears it regardless — which is
+     * what would stop one request's identity leaking into the next if
      * connection pooling were ever introduced.
-     *
-     * Values are bound, never interpolated.
      */
-    private function publish(?string $userId, ?string $organizationId): void
+    private function publishUser(?string $userId): void
     {
+        // Bound, never interpolated.
         $this->connection->statement(
-            'select set_config(?, ?, false), set_config(?, ?, false)',
-            [
-                'app.user_id', $userId ?? '',
-                'app.organization_id', $organizationId ?? '',
-            ],
+            "select set_config('app.user_id', ?, false)",
+            [$userId ?? ''],
         );
     }
 }
