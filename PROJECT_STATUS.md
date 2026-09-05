@@ -3,9 +3,34 @@
 Where the work stands. Read after `CLAUDE.md`, before doing anything.
 
 **Updated:** 2026-09-05
-**Phase:** 0 — Foundation — **complete and verified**
-**Next:** Phase 1 — Identity and organisations (see bottom). Known gaps are
-listed honestly below; none blocks Phase 1 from starting.
+**Phase:** 1 — Identity and organisations — **in progress**
+**Phase 0:** complete, verified, and pushed (`085d102`).
+
+### Phase 1 so far
+
+- [x] The four missing auth pages — reset password, verify email, two-factor
+      challenge, confirm password — plus a shared `AuthLayout`. Closes the last
+      Phase 0 gap: `/reset-password/...` returned 500 before, 200 now.
+- [x] **Permission catalogue** (`app/Domain/Access/Enums/Permission.php`) — 51
+      permissions in code, not in a database table, so a typo is a failing test
+      rather than a silently ungranted capability.
+- [x] **Roles** (`Role.php`) — owner, admin, accountant, bookkeeper, approver,
+      viewer. Shaped around separation of duties: a bookkeeper prepares but
+      cannot post; an approver authorises but cannot create. No non-admin role
+      can both originate and authorise a payment.
+- [x] **AccessControl** — role set, plus per-membership grants, minus
+      revocations. Fails closed on an unknown role. Memoised per request, never
+      cached beyond it, so a revoked capability cannot be served from cache.
+- [x] **Gate** — one gate per permission, resolved against the active
+      organisation from tenant context (never a caller-supplied one), with
+      two-factor enforcement for the 16 consequential permissions.
+- [x] **Audit recorder** — writes in the caller's transaction, denormalises the
+      actor, redacts secrets, stores money as a decimal string, diffs only what
+      changed. Immutability enforced by model and database trigger.
+- [x] 28 new tests covering the RBAC matrix and the audit trail.
+
+Still to do this phase: organisation creation, the onboarding wizard,
+invitations, settings screens, and the browser suite.
 
 ---
 

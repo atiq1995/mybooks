@@ -41,6 +41,26 @@ return [
         'decay_minutes' => (int) env('MY_BOOKS_LOGIN_DECAY_MINUTES', 15),
     ],
 
+    'security' => [
+        /*
+         * Require a confirmed second factor for the consequential permissions
+         * — posting to the ledger, moving money, changing who has access.
+         * See Permission::requiringTwoFactor().
+         *
+         * Defaults OFF in local and testing so a freshly seeded account works
+         * without enrolling an authenticator first, and ON everywhere else.
+         * Setting MY_BOOKS_ENFORCE_2FA explicitly overrides both.
+         *
+         * Resolved to a real boolean HERE rather than in the provider: an
+         * unset env() yields null, and a null config value cannot be read
+         * back as a boolean no matter what default the reader passes.
+         */
+        'enforce_two_factor' => (bool) env(
+            'MY_BOOKS_ENFORCE_2FA',
+            ! in_array(env('APP_ENV', 'production'), ['local', 'testing'], true),
+        ),
+    ],
+
     'api' => [
         'rate_limit' => (int) env('MY_BOOKS_API_RATE_LIMIT', 120),
     ],
