@@ -54,7 +54,49 @@ suite because it connects as the schema owner and bypasses RLS:
 Both now have regression tests that run as the **application role**, so this
 class of bug cannot recur silently.
 
-Still to do this phase: invitations, settings screens, and the browser suite.
+- [x] **Invitations, end to end.** Open registration is off, so an invitation
+      is the only route to an account — which means the flow has to work for
+      someone with no account, no session and no tenant context. Tokens are
+      48 characters, stored only as a SHA-256 hash, single-use, and expiring.
+      The accept page commits to one of four situations (register, sign in,
+      accept, wrong account) rather than showing a form that may not apply.
+- [x] **People screen** — invite, change role inline, revoke, remove. Roles
+      offered are only those the actor may actually grant. The last owner
+      cannot be demoted or removed, and nobody can remove their own access.
+- [x] Verified in a browser with the real queue and real SMTP: invite → email
+      arrives via Horizon in 3s → account created → landed on dashboard →
+      replayed link correctly refused.
+
+**Three more real bugs found and fixed**, all in the same family — the two
+isolation layers disagreeing:
+
+3. **Queued jobs had no tenant context.** `SerializesModels` re-queries each
+   model when a job runs, and a worker has no context, so RLS returned zero
+   rows and the job died reporting a plainly-existing record as "not found".
+   This would have broken *every* future job — invoice PDFs, statements,
+   reminders. `QueueTenancy` now stamps the organisation and user onto every
+   job payload and restores them around execution. It restores rather than
+   clears, because on the `sync` driver a job runs inside its caller and
+   blanket-clearing would wipe the dispatching request's own context.
+4. **Invitation lookup was invisible to its recipient.** A signed-out visitor
+   has no context, so RLS correctly hid the invitation. Rather than punching
+   through with the owner connection, possession of the token is now the
+   authorisation: the application publishes the token's hash and a policy
+   admits exactly that one row. Loading the issuing organisation needed the
+   same treatment.
+5. **The people screen leaked across organisations.**
+   `OrganizationMembership` deliberately has no global scope, because the
+   switcher must read memberships across organisations — and RLS permits a
+   user to see their own membership everywhere for the same reason. The
+   members query and the `{member}` route binding were therefore unscoped.
+   The display bug was visible (one owner listed three times); the real
+   problem was privilege escalation, since permissions are checked against
+   the *active* organisation, so an owner of one could have promoted
+   themselves inside another. Now explicitly scoped, with tests for the
+   escalation path.
+
+Still to do this phase: settings screens (profile, security/2FA enrolment)
+and the browser E2E suite.
 
 ---
 

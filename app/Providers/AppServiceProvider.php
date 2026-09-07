@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Support\Tenancy\QueueTenancy;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
@@ -55,6 +56,10 @@ final class AppServiceProvider extends ServiceProvider
         $this->configureModels();
         $this->configureDatabase();
         $this->configurePasswords();
+
+        // Tenant context has to survive the queue boundary, or every job that
+        // touches organisation-scoped data dies against row-level security.
+        QueueTenancy::register($this->app);
 
         Date::use(Carbon::class);
     }

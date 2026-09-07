@@ -23,12 +23,20 @@ use Illuminate\Support\Carbon;
  *
  * @property string $id
  * @property string $organization_id
- * @property string $user_id
+ * @property string|null $user_id
+ * @property string|null $invited_email
  * @property string $role
  * @property MembershipStatus $status
  * @property list<string>|null $granted_permissions
  * @property list<string>|null $revoked_permissions
+ * @property string|null $invited_by
+ * @property string|null $invitation_token_hash
+ * @property Carbon|null $invited_at
  * @property Carbon|null $joined_at
+ * @property Carbon|null $invitation_expires_at
+ * @property Carbon|null $last_accessed_at
+ * @property Organization|null $organization
+ * @property User|null $user
  */
 final class OrganizationMembership extends Model
 {
@@ -43,6 +51,7 @@ final class OrganizationMembership extends Model
     protected $fillable = [
         'organization_id',
         'user_id',
+        'invited_email',
         'role',
         'status',
         'granted_permissions',
@@ -88,5 +97,24 @@ final class OrganizationMembership extends Model
     public function isActive(): bool
     {
         return $this->status === MembershipStatus::Active;
+    }
+
+    public function isPendingInvitation(): bool
+    {
+        return $this->status === MembershipStatus::Invited;
+    }
+
+    public function invitationHasExpired(): bool
+    {
+        return $this->invitation_expires_at?->isPast() ?? false;
+    }
+
+    /**
+     * The address this person is known by — their account email once they
+     * have one, otherwise the address the invitation was sent to.
+     */
+    public function emailAddress(): ?string
+    {
+        return $this->user->email ?? $this->invited_email;
     }
 }

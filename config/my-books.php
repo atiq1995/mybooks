@@ -41,6 +41,15 @@ return [
         'decay_minutes' => (int) env('MY_BOOKS_LOGIN_DECAY_MINUTES', 15),
     ],
 
+    'invitations' => [
+        /*
+         * How long an invitation link stays usable. It is a credential — it
+         * creates an account and grants access to a set of books — so it
+         * expires rather than lingering in an inbox indefinitely.
+         */
+        'expire_after_days' => (int) env('MY_BOOKS_INVITATION_DAYS', 7),
+    ],
+
     'security' => [
         /*
          * Require a confirmed second factor for the consequential permissions

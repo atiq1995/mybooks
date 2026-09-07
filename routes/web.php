@@ -5,10 +5,12 @@ declare(strict_types=1);
 use App\Http\Controllers\AppearanceController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\ModulePlaceholderController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OrganizationSwitchController;
+use App\Http\Controllers\Settings\MemberController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -26,6 +28,23 @@ use Illuminate\Support\Facades\Route;
 // Dependency health, for load balancers and uptime monitoring. Deliberately
 // unauthenticated but detail-free — it reports up or down, never why.
 Route::get('/health', HealthController::class)->name('health');
+
+/*
+ * Invitations are reachable while signed OUT on purpose. Open registration is
+ * off, so an invitation is the only route to an account in a default
+ * deployment — and its recipient usually has none yet.
+ *
+ * Throttled: the token is a credential, and these routes are the one place it
+ * can be guessed at.
+ */
+Route::middleware('throttle:10,1')->group(function (): void {
+    Route::get('/invitations/{token}', [InvitationController::class, 'show'])
+        ->name('invitations.show');
+    Route::post('/invitations/{token}/accept', [InvitationController::class, 'accept'])
+        ->name('invitations.accept');
+    Route::post('/invitations/{token}/register', [InvitationController::class, 'register'])
+        ->name('invitations.register');
+});
 
 Route::middleware(['auth', 'verified'])->group(function (): void {
     Route::redirect('/', '/dashboard');
@@ -61,6 +80,15 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
     // Theme and density. Its own tiny endpoint so a preference change never
     // re-renders the page the user is working on.
     Route::patch('/settings/appearance', AppearanceController::class)->name('settings.appearance');
+
+    // Who has access, and what they may do.
+    Route::get('/settings/members', [MemberController::class, 'index'])->name('settings.members');
+    Route::post('/settings/members', [MemberController::class, 'invite'])
+        ->name('settings.members.invite');
+    Route::patch('/settings/members/{member}', [MemberController::class, 'updateRole'])
+        ->name('settings.members.role');
+    Route::delete('/settings/members/{member}', [MemberController::class, 'destroy'])
+        ->name('settings.members.destroy');
 
     /*
      * Everything the navigation advertises but that has not been built yet.
