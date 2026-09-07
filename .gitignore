@@ -26,3 +26,12 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Windows reserved device names. A stray "nul" file gets created when a
+# command redirects to NUL from a shell that treats it as a path, and git
+# cannot index it — so it is ignored rather than left to break a commit.
+nul
+[Nn][Uu][Ll]
+[Cc][Oo][Nn]
+[Pp][Rr][Nn]
+[Aa][Uu][Xx]

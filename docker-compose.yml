@@ -77,6 +77,15 @@ services:
     # mid-transaction.
     stop_signal: SIGTERM
     stop_grace_period: 60s
+    # This container serves no HTTP, so the image's liveness check does not
+    # apply. Horizon reports its own supervisor state instead — and a queue
+    # worker that has stopped consuming is exactly what needs noticing.
+    healthcheck:
+      test: ["CMD", "php", "artisan", "horizon:status"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 180s
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
@@ -87,6 +96,12 @@ services:
     container_name: my-books-scheduler
     command: ["php", "artisan", "schedule:work"]
     ports: []
+    # No HTTP and no supervisor to interrogate, so there is nothing honest to
+    # probe — a check that always passes is worse than none, because it reads
+    # as verified. Monitor this one by its logs: if it stops running, recurring
+    # invoices silently stop being generated. DEPLOYMENT.md §5.
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
@@ -100,6 +115,9 @@ services:
     container_name: my-books-migrate
     command: ["php", "artisan", "migrate", "--force", "--database=pgsql_owner"]
     ports: []
+    # A run-once job is never "healthy"; it succeeds and exits.
+    healthcheck:
+      disable: true
     restart: "no"
     profiles: ["tools"]
 

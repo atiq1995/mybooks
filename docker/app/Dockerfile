@@ -64,6 +64,25 @@ COPY docker/app/php.ini   /usr/local/etc/php/conf.d/zz-my-books.ini
 COPY docker/app/entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint
 
+# Replace the base image's health check.
+#
+# FrankenPHP's own probes Caddy's admin API on :2019, which our Caddyfile
+# deliberately turns off (`admin off`) so it is never network-reachable. That
+# check can therefore never pass, and the container reports unhealthy for ever
+# — which an orchestrator answers by restart-looping a perfectly healthy
+# application, and which makes `depends_on: service_healthy` hang.
+#
+# /up is Laravel's own liveness route: cheap, and it actually means "this
+# process can serve traffic". Dependency health (Postgres, Redis, object
+# storage) is a separate question, answered by /health and
+# `php artisan my-books:health` — a container must not kill itself because
+# the database blipped.
+#
+# start-period is generous: a first dev boot installs Composer dependencies
+# before it can serve anything.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
+    CMD curl -fsS http://localhost/up >/dev/null || exit 1
+
 ENV COMPOSER_ALLOW_SUPERUSER=1 \
     COMPOSER_NO_INTERACTION=1
 
@@ -138,8 +157,11 @@ RUN groupadd -g 1000 app \
 
 USER app
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD php artisan my-books:health --quiet || exit 1
+# Inherits the liveness check from `base` on purpose — a shorter start period
+# is the only difference worth having here, since production images arrive with
+# dependencies already installed.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -fsS http://localhost/up >/dev/null || exit 1
 
 ENTRYPOINT ["entrypoint"]
 CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile"]
