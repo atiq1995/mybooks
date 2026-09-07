@@ -16,6 +16,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use Laravel\Fortify\TwoFactorAuthenticatable;
+use Laravel\Passkeys\Contracts\PasskeyUser;
+use Laravel\Passkeys\PasskeyAuthenticatable;
 
 /**
  * A person who can sign in.
@@ -34,13 +37,33 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $email_verified_at
  * @property Carbon|null $two_factor_confirmed_at
  * @property Carbon|null $suspended_at
+ * @property Carbon|null $last_login_at
+ * @property string|null $last_login_ip
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
-final class User extends Authenticatable implements MustVerifyEmail
+final class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory;
 
     use HasUuids, Notifiable, SoftDeletes;
+
+    /*
+     * Fortify's two-factor and passkey behaviour.
+     *
+     * TwoFactorAuthenticatable supplies the QR code, the provisioning URL and
+     * recovery-code handling that Fortify's endpoints call on the user model.
+     * Without it, /user/two-factor-qr-code raises a BadMethodCallException —
+     * which means two-factor is unusable, and two-factor is MANDATORY for any
+     * role that can post to the ledger, move money or manage people. So its
+     * absence would have blocked posting outright once enforcement was on.
+     *
+     * PasskeyAuthenticatable does the same for the passkey routes, which are
+     * already registered.
+     */
+    use PasskeyAuthenticatable;
+    use TwoFactorAuthenticatable;
 
     protected $fillable = [
         'name',

@@ -10,7 +10,10 @@ use App\Http\Controllers\ModulePlaceholderController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OrganizationSwitchController;
+use App\Http\Controllers\Settings\AppearancePreferencesController;
 use App\Http\Controllers\Settings\MemberController;
+use App\Http\Controllers\Settings\ProfileController;
+use App\Http\Controllers\Settings\SecurityController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -80,6 +83,17 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
     // Theme and density. Its own tiny endpoint so a preference change never
     // re-renders the page the user is working on.
     Route::patch('/settings/appearance', AppearanceController::class)->name('settings.appearance');
+
+    /*
+     * Settings screens.
+     *
+     * Registered before the module placeholder catch-all below, which would
+     * otherwise swallow every /settings/* path.
+     */
+    Route::get('/settings/profile', [ProfileController::class, 'show'])->name('settings.profile');
+    Route::get('/settings/security', [SecurityController::class, 'show'])->name('settings.security');
+    Route::get('/settings/appearance-preferences', [AppearancePreferencesController::class, 'show'])
+        ->name('settings.appearance-preferences');
 
     // Who has access, and what they may do.
     Route::get('/settings/members', [MemberController::class, 'index'])->name('settings.members');

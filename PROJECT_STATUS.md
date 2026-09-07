@@ -95,8 +95,38 @@ isolation layers disagreeing:
    themselves inside another. Now explicitly scoped, with tests for the
    escalation path.
 
-Still to do this phase: settings screens (profile, security/2FA enrolment)
-and the browser E2E suite.
+- [x] **Settings screens** — a settings shell split by whose settings they
+      are ("You" vs the organisation, because changing something company-wide
+      while believing it personal is the classic settings mistake), plus
+      Profile, Security and Appearance.
+- [x] **Two-factor enrolment** — enable, scan, confirm, recovery codes. The
+      screen tells *this* person whether their own role depends on it rather
+      than nagging everyone. Password confirmation is collected inline, so a
+      half-finished setup is never abandoned to a redirect.
+- [x] Container health checks now report the truth (see below).
+
+**Three more bugs found and fixed:**
+
+6. **Two-factor was completely non-functional.** `User` was missing Fortify's
+   `TwoFactorAuthenticatable` trait, so `/user/two-factor-qr-code` raised a
+   `BadMethodCallException`. Because two-factor is *mandatory* for any role
+   that can post, this would have blocked posting outright the moment
+   enforcement was switched on in production. `PasskeyAuthenticatable` was
+   missing too.
+7. **Enrolment would have stranded the user.** Enabling two-factor requires a
+   recent password confirmation; as an Inertia visit, Fortify's redirect sent
+   the user to a confirm screen and then to the "intended" URL — which was a
+   POST. The flow now talks to those endpoints as JSON and collects the
+   password inline.
+8. **Every PHP container reported unhealthy for ever.** The FrankenPHP base
+   image probes Caddy's admin API on :2019, which our Caddyfile deliberately
+   disables — so an orchestrator would have restart-looped a healthy app, and
+   `depends_on: service_healthy` would hang. The web tier now probes `/up`,
+   Horizon reports its own supervisor state, and the scheduler and migrate
+   job have no misleading check at all.
+
+Still to do this phase: the organisation settings screen and the browser E2E
+suite. Everything else in Phase 1 is done and verified.
 
 ---
 
