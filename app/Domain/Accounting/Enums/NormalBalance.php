@@ -1,0 +1,58 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Domain\Accounting\Enums;
+
+use Brick\Math\BigDecimal;
+
+/**
+ * Which side of an account increases it.
+ *
+ * An asset has a debit normal balance and grows when debited. A contra-revenue
+ * account such as trade discounts sits under income but has a DEBIT normal
+ * balance — which is exactly why this is stored per account rather than
+ * inferred from the type.
+ */
+enum NormalBalance: string
+{
+    case Debit = 'debit';
+    case Credit = 'credit';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Debit => 'Debit',
+            self::Credit => 'Credit',
+        };
+    }
+
+    /**
+     * The signed balance of an account, from its summed debits and credits.
+     *
+     * Positive means the account holds what its type expects. A debit-normal
+     * account with more credits than debits returns a negative balance, which
+     * is how an overdrawn bank account or a customer in credit shows up —
+     * rather than being hidden behind an absolute value.
+     *
+     * Decimal strings in, decimal string out. No floats anywhere.
+     */
+    public function signedBalance(string $debits, string $credits): string
+    {
+        $debit = BigDecimal::of($debits);
+        $credit = BigDecimal::of($credits);
+
+        return (string) match ($this) {
+            self::Debit => $debit->minus($credit),
+            self::Credit => $credit->minus($debit),
+        };
+    }
+
+    public function opposite(): self
+    {
+        return match ($this) {
+            self::Debit => self::Credit,
+            self::Credit => self::Debit,
+        };
+    }
+}

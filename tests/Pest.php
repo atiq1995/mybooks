@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Domain\Accounting\Actions\CreateChartOfAccounts;
+use App\Domain\Accounting\Actions\CreateFiscalYear;
+use App\Domain\Accounting\Enums\SystemAccount;
+use App\Domain\Accounting\Models\Account;
+use App\Domain\Accounting\Models\FiscalYear;
 use App\Domain\Organizations\Enums\MembershipStatus;
 use App\Domain\Organizations\Models\Organization;
 use App\Domain\Organizations\Models\OrganizationMembership;
@@ -9,6 +14,7 @@ use App\Http\Middleware\EstablishTenantContext;
 use App\Models\User;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /*
@@ -94,4 +100,51 @@ function actingAsMember(Organization $organization, string $role = 'owner'): Use
     asOrganization($organization);
 
     return $user;
+}
+
+/**
+ * Give an organisation the two things a posting needs to exist: a chart of
+ * accounts and an open financial year.
+ *
+ * Makes the organisation the active tenant as a side effect, because both
+ * Actions read the tenant scope and there is no sensible way to call them
+ * without one.
+ */
+function withLedger(Organization $organization, ?int $startingYear = null): FiscalYear
+{
+    asOrganization($organization);
+
+    app(CreateChartOfAccounts::class)->handle($organization);
+
+    return app(CreateFiscalYear::class)->handle($organization, $startingYear);
+}
+
+/**
+ * An account of the active organisation, by system role or by code.
+ *
+ * Tests name accounts by the role they play — "the AR control account" — not
+ * by a number that a template revision could renumber.
+ */
+function ledgerAccount(SystemAccount|string $account): Account
+{
+    $query = Account::query();
+
+    $account instanceof SystemAccount
+        ? $query->where('system_role', $account->value)
+        : $query->where('code', $account);
+
+    return $query->sole();
+}
+
+/**
+ * Wrap a write that the database is expected to refuse in its own savepoint.
+ *
+ * PostgreSQL aborts the whole transaction on error, so a test that asserts two
+ * refusals in a row would see "current transaction is aborted" for the second
+ * one instead of the constraint it is actually testing. A nested transaction
+ * is a SAVEPOINT, which rolls back to a usable state and rethrows.
+ */
+function refused(Closure $write): Closure
+{
+    return static fn () => DB::transaction($write);
 }
