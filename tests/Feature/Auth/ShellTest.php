@@ -113,11 +113,20 @@ it('renders a designed placeholder for modules that are not built yet', function
             ->where('phase', 3),
         );
 
-    $this->get('/accounting')
+    /*
+     * Accounting has landed, so its section header is a real destination and
+     * the placeholder now covers only the part still to come. This asserts
+     * both halves of that: the section redirects, and the unbuilt submodule
+     * still explains itself.
+     */
+    $this->get('/accounting')->assertRedirect('/accounting/accounts');
+
+    $this->get('/accounting/opening-balances')
+        ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->where('module', 'Accounting')
-            ->where('section', null)
-            ->where('phase', 2),
+            ->component('ModulePlaceholder')
+            ->where('module', 'Opening Balances')
+            ->where('phase', 3),
         );
 });
 

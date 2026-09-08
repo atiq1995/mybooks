@@ -115,4 +115,19 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Ledger alerts
+    |--------------------------------------------------------------------------
+    |
+    | Where the nightly ledger verification sends its output when an invariant
+    | fails. A discrepancy means the books may be misstated, which needs a
+    | person rather than a log line — so this deliberately falls back to the
+    | global from-address rather than going nowhere when unset.
+    |
+    | @see routes/console.php
+    */
+
+    'ledger_alerts_to' => env('MAIL_LEDGER_ALERTS_TO', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+
 ];

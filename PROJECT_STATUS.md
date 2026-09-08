@@ -2,11 +2,17 @@
 
 Where the work stands. Read after `CLAUDE.md`, before doing anything.
 
-**Updated:** 2026-09-05
-**Phase:** 1 — Identity and organisations — **in progress**
-**Phase 0:** complete, verified, and pushed (`085d102`).
+**Updated:** 2026-09-08
+**Phase:** 2 — Accounting core — **in progress**
+**Phase 0:** complete, verified, pushed (`085d102`).
+**Phase 1:** complete apart from two items listed under Gaps.
 
-### Phase 1 so far
+**Gates, as of this update:** 268 tests / 1,649 assertions green; PHPStan
+level max clean; Pint clean; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`)
+clean; production asset build succeeds. Every figure in this document was
+observed, not assumed.
+
+### Phase 1 (complete)
 
 - [x] The four missing auth pages — reset password, verify email, two-factor
       challenge, confirm password — plus a shared `AuthLayout`. Closes the last
@@ -33,9 +39,8 @@ Where the work stands. Read after `CLAUDE.md`, before doing anything.
       PK → PKR/July, verified in a browser). The irreversible choice — base
       currency — is called out where the decision is made.
 - [x] **Setup wizard** — business details with PK-specific NTN/STRN labels,
-      a financial-year review, and finish. The two steps that need the ledger
-      (taxes, chart of accounts) are shown padlocked rather than hidden, so
-      the wizard does not change shape under users in Phase 2.
+      a financial-year review, and finish. The chart of accounts step became
+      real in Phase 2; taxes remain padlocked until Phase 3.
 - [x] Walked end to end in a real browser: create → set up → dashboard.
 
 **Two real bugs found and fixed doing this**, both invisible to the test
@@ -286,19 +291,116 @@ Recorded fully in `docs/adr/`.
 
 ---
 
-## Next — Phase 1: Identity and organisations
+## Phase 2 — Accounting core
 
-In order:
+### Schema (all four migrations applied)
 
-1. The four missing auth pages (see gaps) — closes the Phase 0 auth surface
-2. `config/permissions.php` catalogue + roles; `Gate::before`; first Policies
-3. MFA-required middleware for posting/approving/admin roles
-4. Organisation creation + onboarding wizard (10 steps, skippable optional ones)
-5. Invitations (hashed tokens, expiry, accept flow)
-6. Audit recorder (`Auditable` trait, same-transaction writes)
-7. Settings: profile, security (2FA enrol, passkeys, sessions), appearance
-8. Browser suite: sign in → switch org → dashboard
-9. RBAC test matrix; cross-tenant 404 tests through web routes
+- `accounts` — five root types, `normal_balance` stored per account so a
+  contra account can invert its type. Self-referencing parent FK added
+  *after* the table exists; declared inside `Schema::create` it runs before
+  the primary key and PostgreSQL rejects it.
+- `fiscal_years` / `fiscal_periods` — a `btree_gist` EXCLUDE constraint makes
+  overlapping periods impossible, so a posting date can never belong to two.
+- `journal_entries` / `journal_lines` — the ledger. Balance enforced by a
+  `DEFERRABLE INITIALLY DEFERRED` constraint trigger (lines arrive one at a
+  time, so the entry is transiently unbalanced mid-transaction); append-only
+  enforced by a `BEFORE UPDATE OR DELETE` trigger that permits exactly one
+  edit — marking an entry reversed.
+- `document_sequences` / `exchange_rates` — numbering is a locked row, not a
+  PostgreSQL sequence: sequences are non-transactional and leave a gap on
+  rollback, which many tax authorities read as a deleted invoice.
 
-**Exit:** two organisations coexist; a user of one provably cannot reach the
-other's data; RBAC matrix passes; every permission change is audited.
+### Domain
+
+- `JournalDraft` / `JournalLineDraft` — pure, no database. Every posting rule
+  in the application is therefore assertable in microseconds.
+- `PostJournalEntry` — the only code permitted to write the ledger. Balance →
+  base currency → idempotency → period → accounts, then entry, lines and
+  audit in one transaction.
+- `ReverseJournalEntry` — mirror image, dated today by default, base amounts
+  carried over verbatim so the pair nets to exactly zero.
+- `CreateChartOfAccounts`, `CreateFiscalYear`, `PrepareLedger` — all
+  idempotent, so a resumed or double-submitted wizard cannot produce a second
+  chart or a duplicate year.
+- `DocumentNumberGenerator` — `SELECT … FOR UPDATE`, gap-free.
+- `my-books:verify-ledger` — six checks re-derived from raw lines. Now runs
+  nightly at 02:15 via `routes/console.php`, `--json`, one server only.
+
+### Screens
+
+Chart of Accounts (tree, live balances, create/edit/archive/restore),
+Manual Journals (list, filters, create with running totals, detail, reverse),
+General Ledger (opening balance, movements, running balance, closing),
+Trial Balance (net position per account, verdict stated outright),
+Fiscal Periods (open/close/reopen/lock, open a financial year).
+
+`/accounting` and `/settings` now redirect to their first real screen instead
+of a placeholder. Only `/accounting/opening-balances` is still a placeholder —
+it waits on Phase 3, since most opening balances are unpaid invoices and bills
+rather than plain journal lines.
+
+Onboarding gained a **chart of accounts** step, and `POST /onboarding/complete`
+now refuses while the ledger is missing. An organisation marked ready that
+refuses every posting is worse than one still visibly in setup: the error
+would otherwise surface later, on somebody's first invoice.
+
+### Four bugs the tests could not have found, because the code had never run
+
+1. `JournalLineDraft` declared both a static `debit()` constructor and an
+   instance `debit()` accessor. PHP refuses that outright — the entire
+   accounting domain was unloadable. Accessors renamed to `*Value()`.
+2. `JournalDraft` used `$this` inside two `static fn` closures.
+3. brick/math 0.14 turned `RoundingMode` into an enum, so every
+   `RoundingMode::HALF_UP` was an undefined constant. Now `HalfUp`.
+4. `DB::statement` runs a *prepared* statement and accepts exactly one
+   command; three migrations passed it multi-command SQL. Now `DB::unprepared`.
+
+### One real defect found by writing the tests
+
+`VerifyLedgerCommand` scoped every check by row-level security alone. It is
+the one command likely to be run by a role that *bypasses* RLS — an operator
+investigating a restore, a nightly job on the owner connection — so
+`--organization` was silently ignored and findings were attributed to whichever
+organisation the loop happened to be on. Every check now names the
+organisation explicitly.
+
+### Tests added (93 domain + 41 HTTP)
+
+- `tests/Unit/Accounting/JournalDraftTest` — I1–I3 on pure drafts
+- `tests/Accounting/PostJournalEntryTest` — every refusal asserted twice, once
+  in the domain and once in raw SQL against the constraints and triggers
+- `tests/Accounting/ReverseJournalEntryTest` — exactness, account by account
+- `tests/Accounting/DocumentNumberGeneratorTest` — gap-free, including that a
+  rolled-back transaction consumes no number
+- `tests/Accounting/VerifyLedgerCommandTest` — corrupts the ledger with
+  triggers disabled, the way a hand-written SQL fix would, and asserts the
+  command notices and exits non-zero
+- `tests/Accounting/LedgerSetupTest` — chart and year, idempotence, no overlaps
+- `tests/Feature/Accounting/AccountingScreensTest` — authorisation asserted
+  per **role** rather than per permission (a permission list that looks right
+  while a role composes it wrongly would pass a permission-level test), plus
+  cross-tenant 404s through the web routes
+
+### Phase 2 exit criteria
+
+- [x] Trial balance balances, and says so plainly when it does not
+- [x] Unbalanced postings rejected at all three layers
+- [x] Reversals restore balances exactly
+- [x] Closed periods refuse postings without the override; locked refuse all
+- [x] `verify-ledger` catches a deliberately corrupted balance
+- [x] Gap-free numbering under rollback
+- [ ] Opening balances (deferred to Phase 3 — needs contacts and items)
+- [ ] Multi-currency revaluation and the FX gain/loss run
+- [ ] Year-end close (`accounting.close_year` exists; the Action does not)
+- [ ] Committed browser suite for the accounting screens
+
+---
+
+## Next
+
+1. Year-end close: post net income to retained earnings, lock the year
+2. Multi-currency: exchange-rate entry UI, revaluation, FX gain/loss posting
+3. Browser (Pest 4) suite over the five accounting screens — the visual
+   review gate in `CLAUDE.md` has been met by hand, not by a committed test
+4. Phase 1 leftovers: organisation settings screen; committed browser E2E
+5. Then Phase 3 — Sales

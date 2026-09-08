@@ -51,10 +51,13 @@ final class ModulePlaceholderController extends Controller
             'title' => 'Banking',
             'summary' => 'Bank and cash accounts, statement import, transaction matching and reconciliation.',
         ],
+        // The ledger itself has landed; only opening balances are still to
+        // come, and they wait on Phase 3's contacts and items — most opening
+        // balances are unpaid invoices, not plain journal lines.
         'accounting' => [
-            'phase' => 2,
-            'title' => 'Accounting',
-            'summary' => 'Chart of accounts, the ledger, manual journals, fiscal periods, general ledger and trial balance.',
+            'phase' => 3,
+            'title' => 'Opening Balances',
+            'summary' => 'Bringing forward closing balances from a previous system, including unpaid invoices and bills.',
         ],
         'inventory' => [
             'phase' => 8,

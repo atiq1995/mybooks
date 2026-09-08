@@ -66,6 +66,12 @@ three layers; reversals restore balances exactly; closed periods refuse
 postings without the override; `verify-ledger` catches a deliberately
 corrupted balance.
 
+**Status:** the ledger, its five screens and the exit criteria above are done
+(see `PROJECT_STATUS.md`). Still open within this phase: year-end close,
+multi-currency revaluation, and a committed browser suite. Opening balances
+moved to Phase 3 — most of them are unpaid invoices and bills, which need
+contacts and items to exist first.
+
 ---
 
 ## Phase 3 — Sales

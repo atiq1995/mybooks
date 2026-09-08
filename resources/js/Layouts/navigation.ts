@@ -121,15 +121,44 @@ export const NAVIGATION: NavSection[] = [
     {
         label: 'Accounting',
         icon: BookOpen,
+        route: 'accounting.accounts',
         match: '/accounting',
         phase: 2,
         items: [
-            { label: 'Chart of Accounts', match: '/accounting/accounts', phase: 2 },
-            { label: 'Manual Journals', match: '/accounting/journals', phase: 2 },
-            { label: 'General Ledger', match: '/accounting/general-ledger', phase: 2 },
-            { label: 'Trial Balance', match: '/accounting/trial-balance', phase: 2 },
-            { label: 'Fiscal Periods', match: '/accounting/periods', phase: 2 },
-            { label: 'Opening Balances', match: '/accounting/opening-balances', phase: 2 },
+            {
+                label: 'Chart of Accounts',
+                route: 'accounting.accounts',
+                match: '/accounting/accounts',
+                phase: 2,
+            },
+            {
+                label: 'Manual Journals',
+                route: 'accounting.journals',
+                match: '/accounting/journals',
+                phase: 2,
+            },
+            {
+                label: 'General Ledger',
+                route: 'accounting.general-ledger',
+                match: '/accounting/general-ledger',
+                phase: 2,
+            },
+            {
+                label: 'Trial Balance',
+                route: 'accounting.trial-balance',
+                match: '/accounting/trial-balance',
+                phase: 2,
+            },
+            {
+                label: 'Fiscal Periods',
+                route: 'accounting.periods',
+                match: '/accounting/periods',
+                phase: 2,
+            },
+            // Still a placeholder: opening balances need the contact and item
+            // records that Phase 3 brings, since most of them are unpaid
+            // invoices and bills rather than plain journal lines.
+            { label: 'Opening Balances', match: '/accounting/opening-balances', phase: 3 },
         ],
     },
     {
@@ -165,6 +194,7 @@ export const NAVIGATION: NavSection[] = [
     {
         label: 'Settings',
         icon: Settings,
+        route: 'settings.profile',
         match: '/settings',
         phase: 1,
     },
@@ -176,7 +206,7 @@ export const NAVIGATION: NavSection[] = [
  *
  * Raise this as each phase lands.
  */
-export const CURRENT_PHASE = 0;
+export const CURRENT_PHASE = 2;
 
 export function isAvailable(phase: number): boolean {
     return phase <= CURRENT_PHASE;

@@ -3,7 +3,7 @@ import { cn } from '@/Utils/cn';
 
 export interface CardProps {
     children: ReactNode;
-    className?: string;
+    className?: string | undefined;
     /** Removes inner padding. For a card whose body is a full-bleed table. */
     flush?: boolean;
 }

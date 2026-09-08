@@ -127,8 +127,8 @@ export function EmptyState(props: EmptyStateProps) {
 
 export interface NoResultsStateProps {
     /** What was searched for, so the message can name it. */
-    query?: string;
-    onClear?: () => void;
+    query?: string | undefined;
+    onClear?: (() => void) | undefined;
 }
 
 /**

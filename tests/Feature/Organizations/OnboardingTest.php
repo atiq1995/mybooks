@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 use App\Domain\Access\Enums\Role;
+use App\Domain\Accounting\Models\Account;
+use App\Domain\Accounting\Models\FiscalPeriod;
+use App\Domain\Accounting\Models\FiscalYear;
 use App\Domain\Audit\Models\AuditLog;
 use App\Domain\Organizations\Models\Organization;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -76,7 +79,42 @@ it('audits a details change but not a no-op save', function (): void {
     expect(AuditLog::query()->where('action', 'organization.updated')->count())->toBe(1);
 });
 
+it('builds the ledger for the organisation jurisdiction', function (): void {
+    $this->post('/onboarding/ledger')->assertSessionHas('success');
+
+    expect(Account::query()->count())->toBeGreaterThan(30)
+        // Pakistan's tax year runs July to June, and the year opens in the
+        // organisation's own fiscal month rather than January.
+        ->and(FiscalYear::query()->sole()->starts_on->month)->toBe(7)
+        ->and(FiscalPeriod::query()->count())->toBe(12);
+});
+
+it('is idempotent, so a refreshed wizard does not build a second chart', function (): void {
+    $this->post('/onboarding/ledger');
+    $accounts = Account::query()->count();
+
+    $this->post('/onboarding/ledger')->assertSessionHas('success');
+
+    expect(Account::query()->count())->toBe($accounts)
+        ->and(FiscalYear::query()->count())->toBe(1);
+});
+
+it('refuses to finish setup before there is anywhere to post', function (): void {
+    /*
+     * The important half of this: an organisation marked ready that refuses
+     * every posting is worse than one still visibly in setup, because the
+     * error surfaces later, on somebody's first invoice.
+     */
+    $this->post('/onboarding/complete')->assertSessionHas('error');
+
+    expect($this->organization->fresh()?->hasCompletedOnboarding())->toBeFalse()
+        ->and(AuditLog::query()->where('action', 'organization.onboarding_completed')->count())
+        ->toBe(0);
+});
+
 it('completes setup and sends the user to the dashboard', function (): void {
+    $this->post('/onboarding/ledger');
+
     $this->post('/onboarding/complete')
         ->assertRedirect('/dashboard')
         ->assertSessionHas('success');
@@ -87,6 +125,7 @@ it('completes setup and sends the user to the dashboard', function (): void {
 });
 
 it('treats completing an already-complete setup as a no-op', function (): void {
+    $this->post('/onboarding/ledger');
     $this->post('/onboarding/complete');
     $completedAt = $this->organization->fresh()?->onboarding_completed_at;
 
@@ -97,6 +136,21 @@ it('treats completing an already-complete setup as a no-op', function (): void {
         ->toBe($completedAt?->toIso8601String())
         ->and(AuditLog::query()->where('action', 'organization.onboarding_completed')->count())
         ->toBe(1);
+});
+
+it('reports the ledger state to the wizard', function (): void {
+    $this->get('/onboarding')
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('ledger.ready', false)
+            ->where('ledger.accounts', 0)
+            ->where('ledger.jurisdiction', 'PK')
+            ->where('canPrepareLedger', true),
+        );
+
+    $this->post('/onboarding/ledger');
+
+    $this->get('/onboarding')
+        ->assertInertia(fn (Assert $page) => $page->where('ledger.ready', true));
 });
 
 it('does not let a viewer change the organisation during setup', function (): void {

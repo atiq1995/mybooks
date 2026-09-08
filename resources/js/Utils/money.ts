@@ -59,3 +59,78 @@ export function moneySign(value: DecimalString | null | undefined): -1 | 0 | 1 {
 export function isNegative(value: DecimalString | null | undefined): boolean {
     return moneySign(value) === -1;
 }
+
+/** True when a decimal string is exactly zero, without parsing it as a float. */
+export function isZero(value: DecimalString | null | undefined): boolean {
+    return moneySign(value) === 0;
+}
+
+// ---------------------------------------------------------------------------
+// Display arithmetic
+// ---------------------------------------------------------------------------
+
+/*
+ * Everything below adds up decimal strings for the SCREEN only.
+ *
+ * The backend is authoritative for every stored figure and recomputes each one
+ * in PHP at full decimal precision. These exist for the two places a total has
+ * to appear before a round trip — the running totals on a journal form, and a
+ * group subtotal on a report whose authoritative total already came from the
+ * server — and their results are never sent back as an amount.
+ *
+ * They live here rather than in a page so that the whole application's
+ * float-adjacent code is in one file, under one explanation, and the lint rule
+ * that bans Number.parseFloat elsewhere keeps its meaning.
+ *
+ * Results are returned as decimal strings at four places, matching
+ * numeric(19,4), so a caller cannot accidentally keep using the double.
+ */
+
+const SCALE = 4;
+
+export function sumForDisplay(
+    values: readonly (DecimalString | null | undefined)[],
+): DecimalString {
+    let total = 0;
+
+    for (const value of values) {
+        if (value === null || value === undefined || value === '') {
+            continue;
+        }
+
+        const parsed = Number(value);
+
+        if (Number.isFinite(parsed)) {
+            total += parsed;
+        }
+    }
+
+    return total.toFixed(SCALE);
+}
+
+export function subtractForDisplay(a: DecimalString, b: DecimalString): DecimalString {
+    return (Number(a) - Number(b)).toFixed(SCALE);
+}
+
+export function absForDisplay(value: DecimalString): DecimalString {
+    return Math.abs(Number(value)).toFixed(SCALE);
+}
+
+/**
+ * Whether a typed amount is a usable positive figure.
+ *
+ * Rejects blanks, non-numeric text, zero and negatives — a line amount must be
+ * positive, because a negative debit is a credit and permitting both spellings
+ * makes every report ambiguous.
+ */
+export function isPositiveAmount(value: string): boolean {
+    const trimmed = value.trim();
+
+    if (trimmed === '') {
+        return false;
+    }
+
+    const parsed = Number(trimmed);
+
+    return Number.isFinite(parsed) && parsed > 0;
+}

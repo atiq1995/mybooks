@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { SyntheticEvent } from 'react';
 import { Head, router, useForm } from '@inertiajs/react';
-import { Check, Clock, Lock } from 'lucide-react';
+import { Check, Landmark, Lock, UserPlus } from 'lucide-react';
 import { AppLayout } from '@/Layouts/AppLayout';
 import { Button } from '@ui/Button';
 import { Input } from '@ui/Input';
@@ -27,10 +27,20 @@ interface OnboardingOrganization {
     onboarding_complete: boolean;
 }
 
+interface LedgerState {
+    /** Whether this organisation can post: it needs accounts AND periods. */
+    ready: boolean;
+    accounts: number;
+    fiscal_year: string | null;
+    jurisdiction: string;
+}
+
 interface OnboardingProps {
     organization: OnboardingOrganization;
     options: { months: { value: number; label: string }[] };
+    ledger: LedgerState;
     canInvite: boolean;
+    canPrepareLedger: boolean;
 }
 
 type StepState = 'done' | 'current' | 'upcoming' | 'deferred';
@@ -38,20 +48,30 @@ type StepState = 'done' | 'current' | 'upcoming' | 'deferred';
 interface WizardStep {
     title: string;
     hint: string;
-    /** Shown but not reachable — the step needs the ledger, which is Phase 2. */
+    /** Shown but not reachable — the step needs a module that has not landed. */
     deferred?: boolean;
 }
 
 /**
  * The setup wizard.
  *
- * Shows every step the product will eventually walk through, including the two
- * that need the ledger and therefore arrive in Phase 2. Marking them as
- * upcoming is better than hiding them: the wizard does not change shape under
- * users later, and someone setting up their books can see what is still coming
- * before they rely on it.
+ * Shows every step the product will eventually walk through, including the
+ * ones that need a module still to land. Marking those as upcoming is better
+ * than hiding them: the wizard does not change shape under users later, and
+ * someone setting up their books can see what is still coming before they
+ * rely on it.
+ *
+ * The chart of accounts step is the only one that cannot be skipped. Without
+ * it there is nowhere to post, and an organisation marked ready that refuses
+ * every posting is worse than one still visibly in setup.
  */
-export default function Onboarding({ organization, options, canInvite }: OnboardingProps) {
+export default function Onboarding({
+    organization,
+    options,
+    ledger,
+    canInvite,
+    canPrepareLedger,
+}: OnboardingProps) {
     const [step, setStep] = useState(0);
 
     const details = useForm({
@@ -71,6 +91,9 @@ export default function Onboarding({ organization, options, canInvite }: Onboard
         },
     });
 
+    // No fields: the Action derives everything from the organisation itself.
+    const preparing = useForm({});
+
     const isPakistan = organization.country_code === 'PK';
 
     const fiscalMonth =
@@ -79,8 +102,11 @@ export default function Onboarding({ organization, options, canInvite }: Onboard
     const steps: WizardStep[] = [
         { title: 'Business details', hint: 'What appears on your documents' },
         { title: 'Financial year', hint: 'Already set — review it' },
-        { title: 'Taxes', hint: 'Arrives with the ledger', deferred: true },
-        { title: 'Chart of accounts', hint: 'Arrives with the ledger', deferred: true },
+        {
+            title: 'Chart of accounts',
+            hint: ledger.ready ? `${ledger.accounts} accounts ready` : 'Required before posting',
+        },
+        { title: 'Taxes', hint: 'Arrives with invoicing', deferred: true },
         { title: 'Your team', hint: canInvite ? 'Invite people' : 'Ask an owner to invite people' },
         { title: 'Finish', hint: 'Start using My Books' },
     ];
@@ -373,9 +399,108 @@ export default function Onboarding({ organization, options, canInvite }: Onboard
                                 <Button variant="ghost" size="md" onClick={() => setStep(0)}>
                                     Back
                                 </Button>
-                                <Button variant="primary" size="md" onClick={() => setStep(4)}>
+                                <Button variant="primary" size="md" onClick={() => setStep(2)}>
                                     Continue
                                 </Button>
+                            </footer>
+                        </Card>
+                    )}
+
+                    {step === 2 && (
+                        <Card flush>
+                            <header className="border-line-subtle border-b px-4 py-3">
+                                <h2 className="text-content text-md font-semibold">
+                                    Chart of accounts
+                                </h2>
+                                <p className="text-content-muted text-xs">
+                                    The accounts your books are kept in, and the financial year to
+                                    post them into. Nothing can be recorded until both exist.
+                                </p>
+                            </header>
+
+                            {ledger.ready ? (
+                                <div className="flex flex-col gap-4 p-4">
+                                    <div className="border-status-success-line bg-status-success text-status-success-fg flex items-start gap-2 rounded-md border px-3 py-2.5">
+                                        <Check
+                                            className="mt-0.5 size-4 shrink-0"
+                                            aria-hidden="true"
+                                        />
+                                        <div className="text-sm">
+                                            <p className="font-medium">Your ledger is ready.</p>
+                                            <p className="text-xs opacity-90">
+                                                {ledger.accounts} accounts, and financial year{' '}
+                                                {ledger.fiscal_year} is open.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <p className="text-content-muted text-xs">
+                                        Every account can be renamed, regrouped or archived later,
+                                        and you can add your own. The handful the application posts
+                                        to automatically — receivables, payables, tax control
+                                        accounts — are marked and cannot be removed.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col gap-4 p-4">
+                                    <p className="text-content-secondary text-sm">
+                                        We will create a standard chart of accounts for{' '}
+                                        <span className="text-content font-medium">
+                                            {ledger.jurisdiction}
+                                        </span>{' '}
+                                        and open the financial year starting in {fiscalMonth}, with
+                                        its twelve monthly periods.
+                                    </p>
+
+                                    <ul className="text-content-muted flex flex-col gap-1.5 text-xs">
+                                        <li>
+                                            Assets, liabilities, equity, income and expenses, each
+                                            grouped under headings that roll up on reports.
+                                        </li>
+                                        <li>
+                                            Control accounts for receivables, payables, sales tax
+                                            and withholding tax, wired to the modules that use them.
+                                        </li>
+                                        <li>
+                                            Yours to change afterwards — a starting point, not a
+                                            straitjacket.
+                                        </li>
+                                    </ul>
+
+                                    {!canPrepareLedger && (
+                                        <p className="text-content-secondary bg-status-warning rounded-md px-3 py-2 text-xs">
+                                            You do not have permission to set up the chart of
+                                            accounts. Ask an owner or accountant to do this step.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            <footer className="border-line-subtle bg-surface-sunken flex justify-between gap-2 border-t px-4 py-3">
+                                <Button variant="ghost" size="md" onClick={() => setStep(1)}>
+                                    Back
+                                </Button>
+
+                                {ledger.ready ? (
+                                    <Button variant="primary" size="md" onClick={() => setStep(4)}>
+                                        Continue
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        variant="primary"
+                                        size="md"
+                                        disabled={!canPrepareLedger}
+                                        loading={preparing.processing}
+                                        icon={<Landmark aria-hidden="true" />}
+                                        onClick={() =>
+                                            preparing.post('/onboarding/ledger', {
+                                                preserveScroll: true,
+                                            })
+                                        }
+                                    >
+                                        Create the chart of accounts
+                                    </Button>
+                                )}
                             </footer>
                         </Card>
                     )}
@@ -389,26 +514,34 @@ export default function Onboarding({ organization, options, canInvite }: Onboard
                                 </p>
                             </header>
 
-                            <div className="flex flex-col items-center px-6 py-12 text-center">
-                                <div className="bg-surface-active mb-3 flex size-10 items-center justify-center rounded-full">
-                                    <Clock
-                                        className="text-content-muted size-5"
-                                        aria-hidden="true"
-                                    />
-                                </div>
-                                <h3 className="text-content text-md font-semibold">
-                                    Invitations are next
-                                </h3>
-                                <p className="text-content-muted mt-1 max-w-sm text-sm">
-                                    Roles and permissions are in place — owner, accountant,
-                                    bookkeeper, approver and viewer, with separation of duties
-                                    between preparing and posting. The invitation flow that uses
-                                    them lands shortly.
+                            <div className="flex flex-col gap-4 p-4">
+                                <p className="text-content-secondary text-sm">
+                                    Six roles, with separation of duties built in: an approver
+                                    cannot approve their own work, and a bookkeeper cannot post. You
+                                    can change anyone&rsquo;s role at any time.
                                 </p>
+
+                                <p className="text-content-muted text-xs">
+                                    Skip this if you keep these books alone — people can be invited
+                                    whenever you need them.
+                                </p>
+
+                                {canInvite && (
+                                    <div>
+                                        <Button
+                                            variant="secondary"
+                                            size="md"
+                                            icon={<UserPlus aria-hidden="true" />}
+                                            onClick={() => router.get('/settings/members')}
+                                        >
+                                            Invite people
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
 
                             <footer className="border-line-subtle bg-surface-sunken flex justify-between gap-2 border-t px-4 py-3">
-                                <Button variant="ghost" size="md" onClick={() => setStep(1)}>
+                                <Button variant="ghost" size="md" onClick={() => setStep(2)}>
                                     Back
                                 </Button>
                                 <Button variant="primary" size="md" onClick={() => setStep(5)}>
@@ -432,21 +565,28 @@ export default function Onboarding({ organization, options, canInvite }: Onboard
                             </h2>
 
                             <p className="text-content-muted mt-2 max-w-md text-sm">
-                                Your books are set up. Invoicing, bills and the ledger arrive over
-                                the next phases — the dashboard will fill in as they do.
+                                {ledger.ready
+                                    ? 'Your ledger is open and ready to post. Invoicing and bills arrive over the next phases, and the dashboard fills in as they do.'
+                                    : 'One thing left: the chart of accounts. Without it there is nowhere to post.'}
                             </p>
 
                             <div className="mt-6 flex items-center gap-2">
                                 <Button variant="ghost" size="md" onClick={() => setStep(4)}>
                                     Back
                                 </Button>
-                                <Button
-                                    variant="primary"
-                                    size="lg"
-                                    onClick={() => router.post('/onboarding/complete')}
-                                >
-                                    Finish setup
-                                </Button>
+                                {ledger.ready ? (
+                                    <Button
+                                        variant="primary"
+                                        size="lg"
+                                        onClick={() => router.post('/onboarding/complete')}
+                                    >
+                                        Finish setup
+                                    </Button>
+                                ) : (
+                                    <Button variant="primary" size="lg" onClick={() => setStep(2)}>
+                                        Set up the chart of accounts
+                                    </Button>
+                                )}
                             </div>
                         </Card>
                     )}

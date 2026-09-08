@@ -123,7 +123,7 @@ export function Sidebar({
             {import.meta.env.DEV && showLabels && (
                 <div className="border-t border-white/8 px-3 py-2">
                     <p className="text-2xs text-content-sidebar-muted font-mono">
-                        Phase {CURRENT_PHASE} · Foundation
+                        Phase {CURRENT_PHASE} · Ledger
                     </p>
                 </div>
             )}
