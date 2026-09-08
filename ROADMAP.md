@@ -90,7 +90,7 @@ be correct.*
 
 ---
 
-## Phase 4 — Purchases
+## Phase 4 — Purchases · *complete — 2026-09-08*
 
 Vendors, purchase orders, bills, payments made, vendor credits, vendor
 statements, withholding tax on payment.

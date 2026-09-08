@@ -7,6 +7,7 @@ use App\Domain\Accounting\Actions\CreateFiscalYear;
 use App\Domain\Accounting\Enums\SystemAccount;
 use App\Domain\Accounting\Models\Account;
 use App\Domain\Accounting\Models\FiscalYear;
+use App\Domain\Accounting\Models\JournalEntry;
 use App\Domain\Organizations\Enums\MembershipStatus;
 use App\Domain\Organizations\Models\Organization;
 use App\Domain\Organizations\Models\OrganizationMembership;
@@ -145,6 +146,35 @@ function ledgerAccount(SystemAccount|string $account): Account
         : $query->where('code', $account);
 
     return $query->sole();
+}
+
+/**
+ * The lines of a journal entry, keyed by account code.
+ *
+ * Here rather than in one suite's file, because both the sales and the
+ * purchase lifecycles assert against it — and a helper defined at the top
+ * level of a Pest test file is global to the PHP process, so the second suite
+ * to want it either cannot see it (run alone) or collides with it (run
+ * together). Neither failure has anything to do with the code under test.
+ *
+ * Keyed by CODE, not by id: a test that says `$lines['2100']['credit']` reads
+ * as accounting, and a test that says `$lines[$this->ap->id]` reads as
+ * plumbing.
+ *
+ * @return array<string, array{debit: string, credit: string}>
+ */
+function entryLines(JournalEntry $entry): array
+{
+    $lines = [];
+
+    foreach ($entry->lines()->with('account')->get() as $line) {
+        $lines[$line->account?->code ?? '?'] = [
+            'debit' => (string) $line->debit,
+            'credit' => (string) $line->credit,
+        ];
+    }
+
+    return $lines;
 }
 
 /**

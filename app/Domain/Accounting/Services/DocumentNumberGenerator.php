@@ -121,16 +121,32 @@ final readonly class DocumentNumberGenerator
         return $created;
     }
 
+    /**
+     * The prefix a sequence starts life with.
+     *
+     * A default only: the row is editable, so an organisation that numbers
+     * its bills differently changes it once and keeps it. Every document type
+     * is named explicitly rather than left to the fallback, because the
+     * fallback takes the first three letters — which turns `purchase_order`
+     * into PUR- and `vendor_credit` into VEN-, neither of which anybody would
+     * choose.
+     */
     private static function defaultPrefix(string $documentType): string
     {
         return match ($documentType) {
             'invoice' => 'INV-',
-            'bill' => 'BILL-',
-            'journal' => 'JE-',
-            'payment_received' => 'RCPT-',
-            'payment_made' => 'PAY-',
-            'credit_note' => 'CN-',
             'estimate' => 'EST-',
+            'sales_order' => 'SAL-',
+            'credit_note' => 'CN-',
+            'payment_received' => 'RCPT-',
+
+            'purchase_order' => 'PO-',
+            'bill' => 'BILL-',
+            'vendor_credit' => 'VCN-',
+            'payment_made' => 'PAY-',
+
+            'journal' => 'JE-',
+
             default => mb_strtoupper(mb_substr($documentType, 0, 3)).'-',
         };
     }

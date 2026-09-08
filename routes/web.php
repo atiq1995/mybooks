@@ -16,6 +16,9 @@ use App\Http\Controllers\ModulePlaceholderController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OrganizationSwitchController;
+use App\Http\Controllers\Purchases\PayablesReportController;
+use App\Http\Controllers\Purchases\PurchaseDocumentController;
+use App\Http\Controllers\Purchases\VendorPaymentController;
 use App\Http\Controllers\Sales\ContactController;
 use App\Http\Controllers\Sales\ItemController;
 use App\Http\Controllers\Sales\PaymentController;
@@ -256,6 +259,70 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
             ->where('type', 'estimates|sales-orders|invoices|credit-notes');
     });
 
+    /*
+     * Purchases.
+     *
+     * The same arrangement as sales: three document types sharing one
+     * controller, with the type in the URL segment. Registered before the
+     * placeholder catch-all, which matches /purchases and would otherwise
+     * swallow all of it.
+     */
+    Route::prefix('purchases')->name('purchases.')->group(function (): void {
+        Route::redirect('/', '/purchases/bills');
+
+        // Vendors live on the contacts screens with the rest, filtered by
+        // kind. Two directories of people who are often the same people is a
+        // worse answer than one with a filter.
+        Route::redirect('/vendors', '/sales/customers?kind=vendor');
+
+        Route::get('/payments', [VendorPaymentController::class, 'index'])->name('payments.index');
+        Route::get('/payments/new', [VendorPaymentController::class, 'create'])
+            ->name('payments.create');
+        Route::post('/payments', [VendorPaymentController::class, 'store'])->name('payments.store');
+        // Its own endpoint so choosing a vendor does not reload the form and
+        // lose what has already been typed.
+        Route::get('/payments/outstanding/{contact}', [VendorPaymentController::class, 'outstanding'])
+            ->name('payments.outstanding');
+
+        Route::get('/payables', [PayablesReportController::class, 'index'])->name('payables');
+
+        /*
+         * The document routes, last within this group: the {type} segment
+         * would otherwise match 'payments' and 'payables'.
+         */
+        Route::get('/{type}', [PurchaseDocumentController::class, 'index'])
+            ->name('documents.index')
+            ->where('type', 'orders|bills|vendor-credits');
+        Route::get('/{type}/new', [PurchaseDocumentController::class, 'edit'])
+            ->name('documents.create')
+            ->where('type', 'orders|bills|vendor-credits');
+        Route::post('/{type}', [PurchaseDocumentController::class, 'store'])
+            ->name('documents.store')
+            ->where('type', 'orders|bills|vendor-credits');
+        Route::get('/{type}/{number}', [PurchaseDocumentController::class, 'show'])
+            ->name('documents.show')
+            ->where('type', 'orders|bills|vendor-credits');
+        Route::get('/{type}/{number}/edit', [PurchaseDocumentController::class, 'edit'])
+            ->name('documents.edit')
+            ->where('type', 'orders|bills|vendor-credits');
+        Route::patch('/{type}/{number}', [PurchaseDocumentController::class, 'update'])
+            ->name('documents.update')
+            ->where('type', 'orders|bills|vendor-credits');
+        // "Approve", not "issue": on this side the word is the control.
+        Route::post('/{type}/{number}/approve', [PurchaseDocumentController::class, 'approve'])
+            ->name('documents.approve')
+            ->where('type', 'orders|bills|vendor-credits');
+        Route::post('/{type}/{number}/void', [PurchaseDocumentController::class, 'void'])
+            ->name('documents.void')
+            ->where('type', 'orders|bills|vendor-credits');
+        Route::post('/{type}/{number}/convert', [PurchaseDocumentController::class, 'convert'])
+            ->name('documents.convert')
+            ->where('type', 'orders|bills|vendor-credits');
+        Route::delete('/{type}/{number}', [PurchaseDocumentController::class, 'destroy'])
+            ->name('documents.destroy')
+            ->where('type', 'orders|bills|vendor-credits');
+    });
+
     // Tax rates. Under settings because they are configuration, not a
     // day-to-day screen — but the sales module cannot work without them.
     Route::get('/settings/taxes', [TaxController::class, 'index'])->name('settings.taxes');
@@ -277,7 +344,7 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
      * Each module replaces its entry here as it lands.
      */
     Route::get('/{module}/{submodule?}', ModulePlaceholderController::class)
-        ->where('module', 'sales|purchases|expenses|banking|accounting|inventory|reports|contacts|documents|settings|organizations')
+        ->where('module', 'sales|expenses|banking|accounting|inventory|reports|contacts|documents|settings|organizations')
         ->where('submodule', '[a-z0-9\-]+')
         ->name('module.placeholder');
 });

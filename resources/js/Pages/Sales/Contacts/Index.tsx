@@ -26,6 +26,8 @@ interface Contact {
     is_tax_filer: boolean;
     is_archived: boolean;
     outstanding: string;
+    /** What we owe them. Never netted against `outstanding`. */
+    payable: string;
     credit_limit: string | null;
     over_limit: boolean;
 }
@@ -199,8 +201,17 @@ export default function ContactsIndex({
                                         <th className="px-4 py-2 text-left font-medium">Contact</th>
                                         <th className="px-4 py-2 text-right font-medium">Terms</th>
                                         <th className="px-4 py-2 text-right font-medium">
-                                            Outstanding
+                                            They owe
                                         </th>
+                                        {/*
+                                         * A second money column rather than a
+                                         * signed one. The same company can owe
+                                         * us and be owed, and netting the two
+                                         * would hide a receivable behind a
+                                         * payable — leaving neither
+                                         * collectable nor payable on its own.
+                                         */}
+                                        <th className="px-4 py-2 text-right font-medium">We owe</th>
                                         <th className="w-20 px-4 py-2" />
                                     </tr>
                                 </thead>
@@ -286,6 +297,24 @@ export default function ContactsIndex({
                                                         Over limit
                                                     </span>
                                                 )}
+                                            </td>
+
+                                            <td className="px-4 py-2.5 text-right">
+                                                <span
+                                                    className={cn(
+                                                        'font-medium tabular-nums',
+                                                        isZero(contact.payable)
+                                                            ? 'text-content-disabled'
+                                                            : 'text-content',
+                                                    )}
+                                                >
+                                                    {isZero(contact.payable)
+                                                        ? '—'
+                                                        : formatMoney(contact.payable, {
+                                                              currency: contact.currency,
+                                                              showCurrency: false,
+                                                          })}
+                                                </span>
                                             </td>
 
                                             <td className="px-4 py-2.5 text-right">

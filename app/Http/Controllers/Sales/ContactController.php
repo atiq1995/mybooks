@@ -8,6 +8,8 @@ use App\Domain\Access\Enums\Permission;
 use App\Domain\Audit\AuditRecorder;
 use App\Domain\Contacts\Enums\ContactKind;
 use App\Domain\Contacts\Models\Contact;
+use App\Domain\Purchases\Enums\PurchaseDocumentType;
+use App\Domain\Purchases\Models\PurchaseDocument;
 use App\Domain\Sales\Enums\SalesDocumentType;
 use App\Domain\Sales\Models\SalesDocument;
 use App\Http\Controllers\Controller;
@@ -66,12 +68,13 @@ final class ContactController extends Controller
             ->paginate(50)
             ->withQueryString();
 
-        $balances = $this->balancesFor(
-            array_values(array_map(
-                static fn (Contact $contact): string => $contact->id,
-                $contacts->items(),
-            )),
-        );
+        $contactIds = array_values(array_map(
+            static fn (Contact $contact): string => $contact->id,
+            $contacts->items(),
+        ));
+
+        $balances = $this->balancesFor($contactIds);
+        $payables = $this->payablesFor($contactIds);
 
         return Inertia::render('Sales/Contacts/Index', [
             'contacts' => [
@@ -89,6 +92,9 @@ final class ContactController extends Controller
                         'is_tax_filer' => $contact->is_tax_filer,
                         'is_archived' => $contact->archived_at !== null,
                         'outstanding' => $balances[$contact->id] ?? '0.0000',
+                        // Never netted against `outstanding`: a company that
+                        // both buys and sells owes us and is owed, in full.
+                        'payable' => $payables[$contact->id] ?? '0.0000',
                         'credit_limit' => $contact->credit_limit,
                         // Advisory only: refusing to invoice a customer who
                         // has ordered is a commercial decision, not a
@@ -172,12 +178,139 @@ final class ContactController extends Controller
             ],
             'statement' => $this->statement($documents),
             'aging' => $this->aging($documents),
+            /*
+             * The purchase side, for a contact who is also a vendor.
+             *
+             * On one page rather than two, because the same company buying
+             * from us and selling to us is a single relationship — and the
+             * two balances must be readable side by side without ever being
+             * netted. Netting them would hide a receivable behind a payable
+             * and leave neither collectable nor payable on its own.
+             *
+             * Null for a pure customer, so the page shows nothing rather than
+             * an empty vendor section.
+             */
+            'purchases' => $contact->kind->isVendor()
+                ? $this->purchaseSide($contact)
+                : null,
             'baseCurrency' => $organization->base_currency,
             'can' => [
                 'update' => $request->user()?->can(Permission::ContactsUpdate->value) ?? false,
                 'invoice' => $request->user()?->can(Permission::SalesCreate->value) ?? false,
+                'bill' => $request->user()?->can(Permission::PurchasesCreate->value) ?? false,
             ],
         ]);
+    }
+
+    /**
+     * The vendor statement, and what it ages to.
+     *
+     * Kept apart from the sales statement rather than merged into one list of
+     * movements. A combined ledger would read as a net position, which is not
+     * what either side of the relationship is: we owe them the bills and they
+     * owe us the invoices, in full, until each is settled.
+     *
+     * @return array{statement: array{rows: list<array<string, mixed>>, closing: string}, aging: array<string, string>, payable: string}
+     */
+    private function purchaseSide(Contact $contact): array
+    {
+        $documents = PurchaseDocument::query()
+            ->where('contact_id', $contact->id)
+            ->whereIn('type', [
+                PurchaseDocumentType::Bill->value,
+                PurchaseDocumentType::VendorCredit->value,
+            ])
+            ->where('status', '!=', 'draft')
+            ->orderBy('issue_date')
+            ->orderBy('number')
+            ->get();
+
+        $running = BigDecimal::zero();
+        $rows = [];
+
+        foreach ($documents as $document) {
+            // A bill increases what we owe; a vendor credit reduces it.
+            $movement = $document->type === PurchaseDocumentType::VendorCredit
+                ? BigDecimal::of($document->total)->negated()
+                : BigDecimal::of($document->total);
+
+            // A voided document moved nothing, but it stays on the statement
+            // so the numbering has no unexplained gap.
+            if ($document->status->isVoid()) {
+                $movement = BigDecimal::zero();
+            }
+
+            $running = $running
+                ->plus($movement)
+                ->minus(BigDecimal::of($document->amount_paid));
+
+            $rows[] = [
+                'id' => $document->id,
+                'number' => $document->number,
+                'vendor_reference' => $document->vendor_reference,
+                'type' => $document->type->value,
+                'type_label' => $document->type->label(),
+                'url' => $document->type->urlSegment(),
+                'issue_date' => $document->issue_date->toDateString(),
+                'due_date' => $document->due_date?->toDateString(),
+                'status' => $document->status->value,
+                'status_label' => $document->status->label(),
+                'status_tone' => $document->status->tone(),
+                'total' => $document->total,
+                'paid' => $document->amount_paid,
+                'credited' => $document->amount_credited,
+                'balance_due' => $document->balanceDue(),
+                'running_balance' => (string) $running->toScale(4),
+                'is_overdue' => $document->isOverdue(),
+                'days_overdue' => $document->daysOverdue(),
+            ];
+        }
+
+        $buckets = [
+            'current' => BigDecimal::zero(),
+            '1_30' => BigDecimal::zero(),
+            '31_60' => BigDecimal::zero(),
+            '61_90' => BigDecimal::zero(),
+            'over_90' => BigDecimal::zero(),
+        ];
+
+        $today = Carbon::now()->startOfDay();
+
+        foreach ($documents as $document) {
+            if ($document->type !== PurchaseDocumentType::Bill
+                || ! $document->status->isOutstanding()) {
+                continue;
+            }
+
+            $due = BigDecimal::of($document->balanceDue());
+
+            if ($due->isZero()) {
+                continue;
+            }
+
+            $days = $document->due_date === null
+                ? 0
+                : (int) $document->due_date->startOfDay()->diffInDays($today, absolute: false);
+
+            $key = match (true) {
+                $days <= 0 => 'current',
+                $days <= 30 => '1_30',
+                $days <= 60 => '31_60',
+                $days <= 90 => '61_90',
+                default => 'over_90',
+            };
+
+            $buckets[$key] = $buckets[$key]->plus($due);
+        }
+
+        return [
+            'statement' => ['rows' => $rows, 'closing' => (string) $running->toScale(4)],
+            'aging' => array_map(
+                static fn (BigDecimal $amount): string => (string) $amount->toScale(4),
+                $buckets,
+            ),
+            'payable' => $contact->payableBalance(),
+        ];
     }
 
     public function store(StoreContactRequest $request): RedirectResponse
@@ -253,6 +386,23 @@ final class ContactController extends Controller
             ));
         }
 
+        /*
+         * And the other direction. A vendor we still owe is exactly as
+         * unarchivable as a customer who owes us: the payable would stay on
+         * the balance sheet with nobody attached to it, and the payables
+         * ageing would list a vendor nobody can open.
+         */
+        $payable = BigDecimal::of($contact->payableBalance());
+
+        if ($payable->isPositive()) {
+            return back()->with('error', sprintf(
+                'We still owe %s %s. Pay or credit the balance before archiving them — '.
+                'otherwise the payable stays on the balance sheet with nobody attached to it.',
+                $contact->display_name,
+                $payable->toScale(2),
+            ));
+        }
+
         DB::transaction(function () use ($contact, $request): void {
             $contact->forceFill(['archived_at' => now(), 'is_active' => false])->save();
 
@@ -301,6 +451,41 @@ final class ContactController extends Controller
             ->whereIn('contact_id', $contactIds)
             ->where('type', SalesDocumentType::Invoice->value)
             ->whereIn('status', ['sent', 'open', 'partially_paid', 'overdue'])
+            ->groupBy('contact_id')
+            ->selectRaw('contact_id')
+            ->selectRaw('COALESCE(SUM(total - amount_paid - amount_credited), 0) AS owed')
+            ->get();
+
+        $balances = [];
+
+        foreach ($rows as $row) {
+            /** @var object{contact_id: string, owed: string} $row */
+            $balances[$row->contact_id] = (string) BigDecimal::of((string) $row->owed)->toScale(4);
+        }
+
+        return $balances;
+    }
+
+    /**
+     * What we owe each of these contacts, in one query.
+     *
+     * The mirror of {@see balancesFor()}, and separate from it rather than a
+     * union: the two are never added together. A contact who is both a
+     * customer and a vendor has two balances, and the list shows both.
+     *
+     * @param  list<string>  $contactIds
+     * @return array<string, string>
+     */
+    private function payablesFor(array $contactIds): array
+    {
+        if ($contactIds === []) {
+            return [];
+        }
+
+        $rows = DB::table('purchase_documents')
+            ->whereIn('contact_id', $contactIds)
+            ->where('type', PurchaseDocumentType::Bill->value)
+            ->whereIn('status', ['open', 'partially_paid', 'overdue'])
             ->groupBy('contact_id')
             ->selectRaw('contact_id')
             ->selectRaw('COALESCE(SUM(total - amount_paid - amount_credited), 0) AS owed')

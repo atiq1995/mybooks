@@ -44,12 +44,14 @@ final class ModulePlaceholderController extends Controller
             'summary' => 'Invoice templates that generate on a schedule, each posting at its own date.',
             'sections' => ['recurring-invoices'],
         ],
-        'purchases' => [
-            'phase' => 4,
-            'title' => 'Purchases',
-            'summary' => 'Vendors, purchase orders, bills, payments made and vendor credits, including withholding tax at payment.',
-            'sections' => ['vendors', 'orders', 'bills', 'payments', 'vendor-credits'],
-        ],
+        /*
+         * Purchases has landed in full: orders, bills, vendor credits,
+         * payments, payables and withholding at payment all have real
+         * screens, and vendors live on the contacts list with everyone else.
+         * There is nothing left here to promise, so the module has no entry —
+         * which makes /purchases/anything-else a 404 rather than a page
+         * announcing a feature that already exists.
+         */
         'expenses' => [
             'phase' => 5,
             'title' => 'Expenses',

@@ -112,7 +112,7 @@ export const NAVIGATION: NavSection[] = [
              * of which are their own piece of work — so the entry stays
              * padlocked rather than pretending.
              */
-            { label: 'Recurring Invoices', match: '/sales/recurring-invoices', phase: 4 },
+            { label: 'Recurring Invoices', match: '/sales/recurring-invoices', phase: 5 },
         ],
     },
     {
@@ -120,12 +120,50 @@ export const NAVIGATION: NavSection[] = [
         icon: ShoppingCart,
         match: '/purchases',
         phase: 4,
+        route: 'purchases.documents.index',
         items: [
-            { label: 'Vendors', match: '/purchases/vendors', phase: 4 },
-            { label: 'Purchase Orders', match: '/purchases/orders', phase: 4 },
-            { label: 'Bills', match: '/purchases/bills', phase: 4 },
-            { label: 'Payments Made', match: '/purchases/payments', phase: 4 },
-            { label: 'Vendor Credits', match: '/purchases/vendor-credits', phase: 4 },
+            /*
+             * Vendors are the contacts screen filtered by kind, not a second
+             * directory of people. The same company is often both a customer
+             * and a vendor, and two lists of them is a worse answer than one
+             * with a filter.
+             */
+            {
+                label: 'Vendors',
+                route: 'sales.contacts.index',
+                match: '/sales/customers',
+                phase: 4,
+            },
+            {
+                label: 'Purchase Orders',
+                route: 'purchases.documents.index',
+                match: '/purchases/orders',
+                phase: 4,
+            },
+            {
+                label: 'Bills',
+                route: 'purchases.documents.index',
+                match: '/purchases/bills',
+                phase: 4,
+            },
+            {
+                label: 'Payments Made',
+                route: 'purchases.payments.index',
+                match: '/purchases/payments',
+                phase: 4,
+            },
+            {
+                label: 'Vendor Credits',
+                route: 'purchases.documents.index',
+                match: '/purchases/vendor-credits',
+                phase: 4,
+            },
+            {
+                label: 'Payables',
+                route: 'purchases.payables',
+                match: '/purchases/payables',
+                phase: 4,
+            },
         ],
     },
     {
@@ -259,7 +297,7 @@ export const NAVIGATION: NavSection[] = [
  *
  * Raise this as each phase lands.
  */
-export const CURRENT_PHASE = 3;
+export const CURRENT_PHASE = 4;
 
 export function isAvailable(phase: number): boolean {
     return phase <= CURRENT_PHASE;

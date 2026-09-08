@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domain\Accounting\Enums;
 
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 
 /**
  * Which side of an account increases it.
@@ -36,16 +37,24 @@ enum NormalBalance: string
      * rather than being hidden behind an absolute value.
      *
      * Decimal strings in, decimal string out. No floats anywhere.
+     *
+     * Always at the money scale, whatever the inputs looked like. An empty
+     * account sums to a bare `0` in PostgreSQL while a used one sums to
+     * `0.0000`, and returning both would mean a caller comparing two balances
+     * as strings — which is the only safe way to compare money — sees them
+     * differ when they are the same figure.
      */
     public function signedBalance(string $debits, string $credits): string
     {
         $debit = BigDecimal::of($debits);
         $credit = BigDecimal::of($credits);
 
-        return (string) match ($this) {
+        $balance = match ($this) {
             self::Debit => $debit->minus($credit),
             self::Credit => $credit->minus($debit),
         };
+
+        return (string) $balance->toScale(4, RoundingMode::HalfUp);
     }
 
     public function opposite(): self

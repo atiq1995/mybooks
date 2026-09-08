@@ -8,6 +8,7 @@ use App\Domain\Accounting\Models\Account;
 use App\Domain\Accounting\Models\JournalEntry;
 use App\Domain\Contacts\Models\Contact;
 use App\Domain\Organizations\Concerns\BelongsToOrganization;
+use App\Domain\Purchases\Models\PurchasePaymentAllocation;
 use App\Domain\Tax\Models\Tax;
 use Brick\Math\BigDecimal;
 use Illuminate\Database\Eloquent\Builder;
@@ -114,6 +115,21 @@ final class Payment extends Model
     public function allocations(): HasMany
     {
         return $this->hasMany(PaymentAllocation::class);
+    }
+
+    /**
+     * What a payment MADE settled.
+     *
+     * A second relation rather than one polymorphic set, because the two
+     * point at different tables — and a payment has a `direction`, so only
+     * one of these is ever populated. Which one is not ambiguous: a receipt
+     * has sales allocations, a payment has purchase ones.
+     *
+     * @return HasMany<PurchasePaymentAllocation, $this>
+     */
+    public function purchaseAllocations(): HasMany
+    {
+        return $this->hasMany(PurchasePaymentAllocation::class);
     }
 
     /**

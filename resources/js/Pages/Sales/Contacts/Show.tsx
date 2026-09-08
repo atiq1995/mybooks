@@ -28,6 +28,12 @@ interface StatementRow {
     days_overdue: number;
 }
 
+interface PurchaseStatementRow extends StatementRow {
+    vendor_reference: string | null;
+    /** The URL segment for this document's type, from the server. */
+    url: string;
+}
+
 interface ShowProps {
     contact: {
         id: string;
@@ -51,7 +57,16 @@ interface ShowProps {
     };
     statement: { rows: StatementRow[]; closing: string };
     aging: Record<string, string>;
-    can: { update: boolean; invoice: boolean };
+    /**
+     * The purchase side, for a contact who is also a vendor. Null for a pure
+     * customer, so the page shows nothing rather than an empty section.
+     */
+    purchases: {
+        statement: { rows: PurchaseStatementRow[]; closing: string };
+        aging: Record<string, string>;
+        payable: string;
+    } | null;
+    can: { update: boolean; invoice: boolean; bill: boolean };
 }
 
 const BUCKETS: { key: string; label: string }[] = [
@@ -70,7 +85,7 @@ const BUCKETS: { key: string; label: string }[] = [
  * for. A voided document stays on it at zero, so the numbering has no
  * unexplained gap.
  */
-export default function ContactShow({ contact, statement, aging, can }: ShowProps) {
+export default function ContactShow({ contact, statement, aging, purchases, can }: ShowProps) {
     const currency = contact.currency;
 
     return (
@@ -343,6 +358,167 @@ export default function ContactShow({ contact, statement, aging, can }: ShowProp
                     </div>
                 )}
             </Card>
+
+            {/*
+             * The vendor side, on the same page and never netted against the
+             * customer side. A company that both buys from us and sells to us
+             * owes us the invoices and is owed the bills, in full, until each
+             * is settled — and one net figure would leave neither collectable
+             * nor payable.
+             */}
+            {purchases !== null && (
+                <Card flush className="mt-4">
+                    <header className="border-line-subtle flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-3">
+                        <div>
+                            <h2 className="text-content text-md font-semibold">As a vendor</h2>
+                            <p className="text-content-muted text-xs">
+                                Every approved bill and vendor credit, in date order. Kept separate
+                                from the customer statement above — the two balances are not netted.
+                            </p>
+                        </div>
+                        <p className="text-content text-sm font-semibold tabular-nums">
+                            {formatMoney(purchases.payable, { currency })} owed to them
+                        </p>
+                    </header>
+
+                    {purchases.statement.rows.length === 0 ? (
+                        <EmptyState
+                            icon={FileText}
+                            title="No bills yet"
+                            description={`Once ${contact.display_name} bills you, this statement builds itself.`}
+                            action={
+                                can.bill && !contact.is_archived ? (
+                                    <Button
+                                        variant="primary"
+                                        size="sm"
+                                        onClick={() => router.get('/purchases/bills/new')}
+                                    >
+                                        New bill
+                                    </Button>
+                                ) : undefined
+                            }
+                        />
+                    ) : (
+                        <div className="table-scroll">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-content-muted border-line-subtle text-2xs border-b uppercase">
+                                        <th className="px-4 py-2 text-left font-medium">Date</th>
+                                        <th className="px-4 py-2 text-left font-medium">
+                                            Document
+                                        </th>
+                                        <th className="px-4 py-2 text-left font-medium">Due</th>
+                                        <th className="px-4 py-2 text-right font-medium">Billed</th>
+                                        <th className="px-4 py-2 text-right font-medium">Paid</th>
+                                        <th className="px-4 py-2 text-right font-medium">
+                                            Balance
+                                        </th>
+                                        <th className="px-4 py-2 text-left font-medium">Status</th>
+                                    </tr>
+                                </thead>
+
+                                <tbody className="divide-line-subtle divide-y">
+                                    {purchases.statement.rows.map((row) => (
+                                        <tr
+                                            key={row.id}
+                                            className={cn(
+                                                'hover:bg-surface-hover',
+                                                row.status === 'void' && 'opacity-60',
+                                            )}
+                                        >
+                                            <td className="text-content-secondary px-4 py-2.5 tabular-nums">
+                                                {row.issue_date}
+                                            </td>
+
+                                            <td className="px-4 py-2.5">
+                                                <Link
+                                                    href={`/purchases/${row.url}/${row.number}`}
+                                                    className="text-brand-text font-medium tabular-nums hover:underline"
+                                                >
+                                                    {row.number}
+                                                </Link>
+                                                <span className="text-content-muted ml-2 text-xs">
+                                                    {row.vendor_reference ?? row.type_label}
+                                                </span>
+                                            </td>
+
+                                            <td
+                                                className={cn(
+                                                    'px-4 py-2.5 tabular-nums',
+                                                    row.is_overdue
+                                                        ? 'text-danger-600 dark:text-danger-400'
+                                                        : 'text-content-secondary',
+                                                )}
+                                            >
+                                                {row.due_date ?? '—'}
+                                            </td>
+
+                                            <td className="text-content px-4 py-2.5 text-right tabular-nums">
+                                                {row.type === 'vendor_credit' ? '-' : ''}
+                                                {formatMoney(row.total, {
+                                                    currency,
+                                                    showCurrency: false,
+                                                })}
+                                            </td>
+
+                                            <td className="text-content-secondary px-4 py-2.5 text-right tabular-nums">
+                                                {isZero(row.paid)
+                                                    ? '—'
+                                                    : formatMoney(row.paid, {
+                                                          currency,
+                                                          showCurrency: false,
+                                                      })}
+                                            </td>
+
+                                            <td
+                                                className={cn(
+                                                    'px-4 py-2.5 text-right font-medium tabular-nums',
+                                                    isNegative(row.running_balance)
+                                                        ? 'text-success-700 dark:text-success-400'
+                                                        : 'text-content',
+                                                )}
+                                            >
+                                                {formatMoney(row.running_balance, {
+                                                    currency,
+                                                    showCurrency: false,
+                                                })}
+                                            </td>
+
+                                            <td className="px-4 py-2.5">
+                                                <Badge
+                                                    tone={
+                                                        row.is_overdue
+                                                            ? 'danger'
+                                                            : ((row.status_tone as BadgeTone) ??
+                                                              'neutral')
+                                                    }
+                                                >
+                                                    {row.is_overdue ? 'Overdue' : row.status_label}
+                                                </Badge>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+
+                                <tfoot>
+                                    <tr className="border-line-subtle bg-surface-sunken text-content border-t-2 font-semibold">
+                                        <td className="px-4 py-2.5" colSpan={5}>
+                                            Closing balance owed to them
+                                        </td>
+                                        <td className="px-4 py-2.5 text-right tabular-nums">
+                                            {formatMoney(purchases.statement.closing, {
+                                                currency,
+                                                showCurrency: false,
+                                            })}
+                                        </td>
+                                        <td />
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    )}
+                </Card>
+            )}
         </AppLayout>
     );
 }

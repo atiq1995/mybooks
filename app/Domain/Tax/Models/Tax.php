@@ -69,11 +69,25 @@ final class Tax extends Model
     }
 
     /**
-     * The components in force on a given date.
+     * The components in force on a given date — ONE per sequence.
      *
      * Not simply "the components": a rate that changes on 1 July must not
      * touch June's invoices, so the version is resolved against the
      * document's own date.
+     *
+     * And exactly one version of each sequence, which is the part that is
+     * easy to get wrong. A rate change is a NEW component row at the same
+     * sequence with a later `effective_from`. Whoever writes it is supposed
+     * to close the old one by setting `effective_to`, and if they do, a plain
+     * date-window filter gives the right answer. If they do not — an import,
+     * a fixture, a hand-written row, a future screen that forgets — then both
+     * versions match the window, both are handed to the calculator, and the
+     * tax is charged TWICE. Nobody notices until a return is filed at 38%.
+     *
+     * So the window is not trusted to be exclusive. Within each sequence the
+     * latest applicable version wins, which is what "the rate in force on
+     * this date" means, and an unclosed old version is then merely untidy
+     * rather than a double charge.
      *
      * @return list<TaxComponent>
      */
@@ -81,17 +95,28 @@ final class Tax extends Model
     {
         $on = $date->toDateString();
 
-        return array_values(
-            $this->components()
-                ->whereDate('effective_from', '<=', $on)
-                ->where(function (Builder $query) use ($on): void {
-                    $query->whereNull('effective_to')
-                        ->orWhereDate('effective_to', '>=', $on);
-                })
-                ->orderBy('sequence')
-                ->get()
-                ->all(),
-        );
+        $applicable = $this->components()
+            ->whereDate('effective_from', '<=', $on)
+            ->where(function (Builder $query) use ($on): void {
+                $query->whereNull('effective_to')
+                    ->orWhereDate('effective_to', '>=', $on);
+            })
+            ->orderBy('sequence')
+            // Latest version last, so it is the one that survives the keying
+            // below.
+            ->orderBy('effective_from')
+            ->get();
+
+        /** @var array<int, TaxComponent> $bySequence */
+        $bySequence = [];
+
+        foreach ($applicable as $component) {
+            $bySequence[$component->sequence] = $component;
+        }
+
+        ksort($bySequence);
+
+        return array_values($bySequence);
     }
 
     /**
@@ -127,6 +152,18 @@ final class Tax extends Model
     public function scopeForSales(Builder $query): Builder
     {
         return $query->whereIn('applies_to', [TaxAppliesTo::Sales->value, TaxAppliesTo::Both->value]);
+    }
+
+    /**
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeForPurchase(Builder $query): Builder
+    {
+        return $query->whereIn('applies_to', [
+            TaxAppliesTo::Purchase->value,
+            TaxAppliesTo::Both->value,
+        ]);
     }
 
     /**

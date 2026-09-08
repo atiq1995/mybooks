@@ -3,15 +3,15 @@
 Where the work stands. Read after `CLAUDE.md`, before doing anything.
 
 **Updated:** 2026-09-08
-**Phase:** 3 — Sales — **complete apart from three deferred items** (listed at
-the end of the Phase 3 section)
+**Phase:** 4 — Purchases — **complete; every exit criterion met**
 **Phase 0:** complete, verified, pushed (`085d102`).
 **Phase 1:** complete apart from two items listed under Gaps.
 **Phase 2:** complete; every exit criterion met bar opening balances, which
-was deliberately deferred here because it needs contacts and items.
+was deferred because it needs contacts and items.
+**Phase 3:** complete apart from three items listed at the end of its section.
 
-**Gates, as of this update:** 444 tests / 2,403 assertions green — 77 Unit,
-226 Feature, 134 Accounting, 7 Browser against a real Chromium; the accounting
+**Gates, as of this update:** 532 tests / 2,895 assertions green — 96 Unit,
+264 Feature, 165 Accounting, 7 Browser against a real Chromium; the accounting
 suite also re-run serially, as it asserts ledger-wide state. PHPStan level max
 clean; Pint clean; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`) clean;
 production asset build succeeds. Every figure in this document was observed,
@@ -269,7 +269,7 @@ starting; all are listed so nobody is surprised.
 | Browser (E2E) suite | Directory + README only; Pest browser plugin installed, Playwright not wired into the app image | Phase 1 |
 | Component gallery page | Primitives exist; no in-app gallery yet | Phase 1 |
 | `my-books:verify-ledger` command | Referenced by Dockerfile HEALTHCHECK docs and restore.sh; does not exist yet | Phase 2 (with the ledger) |
-| API `/api/v1` | Sanctum installed, no routes. Not started in Phase 3 — the screens came first, and the API should serialise a settled domain rather than a moving one | Phase 4 |
+| API `/api/v1` | Sanctum installed, no routes. Still not started — the screens have come first through Phases 3 and 4, and the API should serialise a settled domain rather than a moving one. Note that Phase 1's exit criterion mentions `/api/v1` isolation, which cannot be tested until routes exist | Phase 5 |
 | Git | Committed and pushed to `origin/main` through Phase 3 | — |
 
 Resolved during the session and worth knowing about: the Feature suite took
@@ -552,9 +552,142 @@ asserts something different every day it runs.
 
 ---
 
+## Phase 4 — Purchases
+
+### Schema
+
+Separate tables from sales, not one `documents` table with a direction. The
+two sides look alike on screen and differ underneath: a sales line names the
+revenue account it credits, a purchase line names the expense **or asset**
+account it debits and may capitalise its tax instead of claiming it. Merging
+them would mean a nullable column per difference, and the first purchase-only
+column would weaken a sales-only guarantee.
+
+- `purchase_documents`, `purchase_document_lines`,
+  `purchase_document_line_taxes` — mirroring the sales trio, plus
+  `vendor_reference` (their number, not ours), `tax_claimable_total`, and
+  `tax_is_claimable` per line.
+- `purchase_payment_allocations` — `payments` already carried a `direction`,
+  so it serves both sides unchanged; only the allocation table is new.
+
+Two constraints carry rules the code must not be able to lose:
+
+```sql
+ADD CONSTRAINT purchase_documents_commitments_never_post
+    CHECK (journal_entry_id IS NULL OR type IN ('bill','vendor_credit')),
+-- Approval is what posts a bill, so the two facts travel together.
+ADD CONSTRAINT purchase_documents_approval_matches_posting
+    CHECK (type <> 'bill' OR (approved_at IS NULL) = (journal_entry_id IS NULL));
+```
+
+### Domain
+
+- `BillPosting` (§4.6), `VendorCreditPosting`, `VendorPaymentPosting` (§4.7 and
+  §4.11) — pure, so every figure is asserted line by line without a database.
+- `SavePurchaseDocument`, `ApprovePurchaseDocument`, `VoidPurchaseDocument`,
+  `ConvertPurchaseDocument`, `RecordVendorPayment`.
+- A bill posts on **approval**, not on entry. That is §6's rule and the
+  substantive difference from sales: an invoice is issued by whoever wrote it,
+  so writing and issuing are one decision; a bill arrives from outside, and
+  somebody has to agree we owe it before the liability is ours to recognise.
+
+Three places where the obvious alternative also balances and is wrong:
+
+1. **Non-claimable input tax is capitalised into the cost**, not booked to GST
+   Input Receivable. Booking it as a receivable overstates assets by its value
+   and understates the cost of the purchase by the same amount — and nothing
+   would ever flag the receivable that can never be recovered. Decided per
+   line, because claimability is a fact about what was bought.
+2. **A purchase discount is netted into the cost**, which is the opposite of
+   the sales side's grossed-up contra-revenue. "What did we sell and what did
+   we give away" cannot be recovered from a net figure, so sales keeps both;
+   the cost of an asset simply *is* what was paid for it, and grossing it up
+   would state an inventory value the business never paid.
+3. **A vendor credit credits the account the bill debited** — again the
+   opposite of the sales side, where a credit note debits Sales Returns rather
+   than reversing revenue. Gross sales is a headline that must not fall when
+   goods come back; an expense account has no headline, only the question
+   "what did the period cost", and a purchase returned cost nothing. Where the
+   goods went to stock it matters more than presentation: only crediting
+   inventory brings the stock value back down.
+
+### Screens
+
+Six pages: the document list, editor and view shared by purchase orders, bills
+and vendor credits; payments made; payments entry; and the payables ageing
+report. Vendors are the contacts screen filtered by kind rather than a second
+directory of people, and the vendor statement sits on the contact page beside
+the customer one.
+
+- **Payables leads with what falls due soonest**, where receivables leads with
+  the oldest money. Different question: the receivables reader is deciding who
+  to chase, and the oldest debt is the least collectable; the payables reader
+  is deciding what to pay this week, and a list headed by a year-old disputed
+  invoice would bury the bill due on Friday.
+- Two figures sit above the ageing table for the same reason — due within
+  seven days, and already late. Neither is visible in the buckets, where "not
+  yet due" mixes tomorrow with two months away.
+- The list's third summary figure is **awaiting approval**, which has no sales
+  equivalent and is the one worth saying out loud: that money is owed and the
+  books do not know about it yet.
+- A contact who is both a customer and a vendor shows **both balances, never
+  netted**. Netting them would hide a receivable behind a payable and leave
+  neither collectable nor payable on its own.
+
+### Defects found by writing the tests
+
+Two in code that predates this phase, both found by the purchase tests:
+
+1. **`Tax::componentsOn()` could return two versions of the same component.**
+   A rate change is a new row at the same sequence with a later
+   `effective_from`, and whoever writes it is supposed to close the old one.
+   The date-window filter trusted that: an unclosed old version matched too,
+   both were handed to the calculator, and the tax was charged **twice**.
+   Nobody would notice until a return was filed at 38%. The latest applicable
+   version per sequence now wins, so an unclosed row is untidy rather than a
+   double charge.
+2. **`NormalBalance::signedBalance()` returned an unscaled `0`** for an
+   account with no movement, while a used account returned `0.0000` — so two
+   equal balances compared unequal as strings, which is the only safe way to
+   compare money. Always at the money scale now.
+
+### Tests added
+
+- 19 unit tests over the three purchase posting rules — §4.6's and §4.7's
+  worked examples to the cent, plus each place where the plausible alternative
+  balances but states something false.
+- 31 accounting tests over the lifecycle: purchase order → bill → payment
+  against a real database, with `verify-ledger` clean afterwards.
+- 38 HTTP tests over the screens
+  (`tests/Feature/Purchases/PurchaseScreensTest.php`), asserted per role.
+
+One test-infrastructure fix: `entryLines()` moved into `tests/Pest.php`. Both
+lifecycle suites assert against it, and a helper declared at the top level of
+a Pest file is global to the process — so the second suite to want it either
+could not see it or collided with it, depending on how the parallel runner
+distributed files. The same trap as the `const AR` collision in Phase 3.
+
+### Phase 4 exit criteria
+
+- [x] Purchase order → bill → payment posts correctly at every step
+- [x] Payables age accurately, and the report says whether it reconciles to
+      the AP control account
+- [x] Withholding recorded as a liability, with the vendor settled in full,
+      and reconciling — asserted through the ledger, not just the document
+- [x] Non-claimable input tax capitalised per §4.6, per line
+- [x] Vendor credits, and voiding by reversal rather than deletion
+- [x] Vendor statements, on the contact page, never netted against the
+      customer side
+- [x] Duplicate-bill guard on the vendor's own reference, naming the bill it
+      collides with
+- [x] Separation of duties: a bookkeeper prepares and cannot approve; an
+      approver approves and cannot create
+
+---
+
 ## Next
 
-1. Opening balances — now unblocked, and the oldest outstanding item
+1. Opening balances — unblocked since Phase 3, and the oldest outstanding item
 2. Phase 1 leftover: an organisation settings screen
-3. Browser journeys through the sales screens (line editor, issue, payment)
-4. Then Phase 4 — Purchases, plus recurring invoices
+3. Browser journeys through the sales and purchase screens
+4. Then Phase 5 — Expenses, plus recurring invoices

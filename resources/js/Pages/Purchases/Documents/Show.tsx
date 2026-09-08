@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { SyntheticEvent } from 'react';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { ArrowRight, Ban, Check, Pencil, Send, Trash2, Wallet } from 'lucide-react';
+import { ArrowRight, Ban, Check, Pencil, ShieldCheck, Trash2, Wallet } from 'lucide-react';
 import { AppLayout } from '@/Layouts/AppLayout';
 import { Badge } from '@ui/Badge';
 import type { BadgeTone } from '@ui/Badge';
@@ -9,7 +9,7 @@ import { Button } from '@ui/Button';
 import { Card } from '@ui/Card';
 import { Input } from '@ui/Input';
 import { Select } from '@ui/Select';
-import type { DocumentSummary, DocumentTypeProps } from './Index';
+import type { PurchaseSummary, PurchaseTypeProps } from './Index';
 import { formatMoney, isZero, sumForDisplay } from '@/Utils/money';
 import { cn } from '@/Utils/cn';
 
@@ -17,9 +17,17 @@ interface LineTax {
     name: string;
     rate: string;
     amount: string;
+    is_claimable: boolean;
 }
 
-interface DocumentLine {
+interface TaxSummaryRow {
+    name: string;
+    rate: string;
+    amount: string;
+    claimable: string;
+}
+
+interface PurchaseLine {
     id: string;
     line_no: number;
     item_name: string | null;
@@ -31,13 +39,15 @@ interface DocumentLine {
     document_discount_amount: string;
     taxable: string;
     tax_total: string;
+    tax_is_claimable: boolean;
+    capitalised_cost: string;
     total: string;
     taxes: LineTax[];
 }
 
 interface ShowProps {
-    type: DocumentTypeProps;
-    document: DocumentSummary & {
+    type: PurchaseTypeProps;
+    document: PurchaseSummary & {
         notes: string | null;
         terms: string | null;
         discount_type: string | null;
@@ -45,51 +55,63 @@ interface ShowProps {
         prices_include_tax: boolean;
         expires_on: string | null;
         billing_address: Record<string, string> | null;
-        issued_at: string | null;
+        approved_at: string | null;
         voided_at: string | null;
         journal_entry_no: string | null;
         void_journal_entry_no: string | null;
         converted_from: { number: string; type: string; url: string } | null;
         credits_document: { number: string; url: string } | null;
-        lines: DocumentLine[];
-        tax_summary: LineTax[];
+        lines: PurchaseLine[];
+        tax_summary: TaxSummaryRow[];
         payments: { number: string | null; date: string | null; amount: string }[];
     };
     contact: {
         id: string;
         display_name: string;
         email: string | null;
-        outstanding: string;
+        payable: string;
     };
     baseCurrency: string;
     can: Record<string, boolean>;
 }
 
 /**
- * One sales document, in full.
+ * One purchase document, in full.
  *
- * A draft can be edited or deleted. An issued one cannot: it is corrected by
- * a credit note or withdrawn by a void, and both leave the original on the
- * record. The actions available say which state this is in, rather than the
- * user discovering it from an error.
+ * The screen is built around the moment that matters on this side: approval.
+ * A draft is somebody's transcription of what a vendor sent; approving it is
+ * the decision that we owe the money, and it is the step that posts. So the
+ * approve button says what it will do, and the page says plainly when nothing
+ * has been approved yet.
  *
- * @see ACCOUNTING_RULES.md §6
+ * Where a line's input tax cannot be reclaimed, the page says so on the line
+ * rather than only in the total — that tax is part of the cost, and a reader
+ * comparing two vendors needs to see it.
+ *
+ * @see ACCOUNTING_RULES.md §4.6, §6
  */
-export default function DocumentShow({ type, document, contact, baseCurrency, can }: ShowProps) {
+export default function PurchaseDocumentShow({
+    type,
+    document,
+    contact,
+    baseCurrency,
+    can,
+}: ShowProps) {
     const [voiding, setVoiding] = useState(false);
     const [converting, setConverting] = useState(false);
 
-    const issue = useForm({ post_to_closed_period: false });
+    const approve = useForm({ post_to_closed_period: false });
 
     const showTaxColumn = document.tax_summary.length > 0;
+    const hasBlockedTax = !isZero(document.tax_capitalised);
 
     return (
         <AppLayout
             title={document.number}
-            description={`${type.label} for ${contact.display_name}`}
+            description={`${type.label} from ${contact.display_name}`}
             breadcrumbs={[
-                { label: 'Sales' },
-                { label: type.plural, href: `/sales/${type.segment}` },
+                { label: 'Purchases' },
+                { label: type.plural, href: `/purchases/${type.segment}` },
                 { label: document.number },
             ]}
             actions={
@@ -100,48 +122,50 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
                             size="md"
                             icon={<Pencil aria-hidden="true" />}
                             onClick={() =>
-                                router.get(`/sales/${type.segment}/${document.number}/edit`)
+                                router.get(`/purchases/${type.segment}/${document.number}/edit`)
                             }
                         >
                             Edit
                         </Button>
                     )}
 
-                    {document.is_editable && can.issue && (
+                    {document.is_editable && can.approve && (
                         <Button
                             variant="primary"
                             size="md"
-                            loading={issue.processing}
-                            icon={<Send aria-hidden="true" />}
+                            loading={approve.processing}
+                            icon={<ShieldCheck aria-hidden="true" />}
                             onClick={() => {
                                 if (
                                     !window.confirm(
-                                        `Issue ${document.number}?\n\n` +
+                                        `${type.issue_verb} ${document.number}?\n\n` +
                                             (type.posts
-                                                ? 'This posts to the ledger. Afterwards the document cannot be edited — only credited or voided, both of which leave it on the record.'
+                                                ? 'This recognises the liability and posts to the ledger. Afterwards the document cannot be edited — only credited or voided, both of which leave it on the record.'
                                                 : 'A commitment document has no accounting effect, so nothing is posted.'),
                                     )
                                 ) {
                                     return;
                                 }
 
-                                issue.post(`/sales/${type.segment}/${document.number}/issue`);
+                                approve.post(
+                                    `/purchases/${type.segment}/${document.number}/approve`,
+                                );
                             }}
                         >
-                            Issue
+                            {type.issue_verb}
                         </Button>
                     )}
 
-                    {can.record_payment && (
+                    {can.pay && (
                         <Button
                             variant="primary"
                             size="md"
                             icon={<Wallet aria-hidden="true" />}
                             onClick={() =>
-                                router.get(`/sales/payments/new?invoice=${document.number}`)
+                                router.get(`/purchases/payments/new?bill=${document.number}`)
                             }
                         >
-                            Record payment
+                            Pay
                         </Button>
                     )}
 
@@ -155,7 +179,7 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
                                 icon={<ArrowRight aria-hidden="true" />}
                                 onClick={() => setConverting(true)}
                             >
-                                Convert
+                                Convert to bill
                             </Button>
                         )}
 
@@ -180,7 +204,7 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
                                     return;
                                 }
 
-                                router.delete(`/sales/${type.segment}/${document.number}`);
+                                router.delete(`/purchases/${type.segment}/${document.number}`);
                             }}
                         >
                             Delete
@@ -217,14 +241,29 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
                 </Card>
             )}
 
+            {/*
+             * The state that has no equivalent on the sales side, and the one
+             * worth saying out loud: this money is owed and the books do not
+             * know about it yet.
+             */}
+            {document.is_editable && type.posts && (
+                <Card className="border-line-brand mb-4">
+                    <p className="text-content-secondary text-sm">
+                        <span className="text-content font-medium">Not yet approved.</span> Nothing
+                        has been posted, so this {type.label.toLowerCase()} is not on the balance
+                        sheet — check it against what was ordered and received, then approve it.
+                    </p>
+                </Card>
+            )}
+
             {(document.converted_from !== null || document.credits_document !== null) && (
                 <Card className="border-line-brand mb-4">
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                         {document.converted_from !== null && (
                             <>
-                                <span className="text-content-secondary">Converted from</span>
+                                <span className="text-content-secondary">Ordered on</span>
                                 <Link
-                                    href={`/sales/${document.converted_from.url}/${document.converted_from.number}`}
+                                    href={`/purchases/${document.converted_from.url}/${document.converted_from.number}`}
                                     className="text-brand-text font-medium hover:underline"
                                 >
                                     {document.converted_from.number}
@@ -236,7 +275,7 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
                             <>
                                 <span className="text-content-secondary">Credits</span>
                                 <Link
-                                    href={`/sales/${document.credits_document.url}/${document.credits_document.number}`}
+                                    href={`/purchases/${document.credits_document.url}/${document.credits_document.number}`}
                                     className="text-brand-text font-medium hover:underline"
                                 >
                                     {document.credits_document.number}
@@ -265,7 +304,7 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
             )}
 
             <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <Fact label="Customer">
+                <Fact label="Vendor">
                     <Link
                         href={`/sales/customers/${contact.id}`}
                         className="text-brand-text hover:underline"
@@ -274,7 +313,11 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
                     </Link>
                 </Fact>
 
-                <Fact label="Issued">{document.issue_date}</Fact>
+                <Fact label={type.posts ? 'Their reference' : 'Reference'}>
+                    <span className="tabular-nums">
+                        {document.vendor_reference ?? document.reference ?? '—'}
+                    </span>
+                </Fact>
 
                 {type.has_due_date ? (
                     <Fact label="Due">
@@ -343,9 +386,6 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
 
                         <tbody className="divide-line-subtle divide-y">
                             {document.lines.map((line) => {
-                                // Through Utils/money, so the application's
-                                // float-adjacent arithmetic stays in one file
-                                // — a local helper here made that rule empty.
                                 const discount = sumForDisplay([
                                     line.discount_amount,
                                     line.document_discount_amount,
@@ -405,6 +445,18 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
                                                                 {tax.name}
                                                             </span>
                                                         ))}
+                                                        {/*
+                                                         * Said on the line, not
+                                                         * only in the total:
+                                                         * this tax is part of
+                                                         * what the purchase
+                                                         * cost.
+                                                         */}
+                                                        {!line.tax_is_claimable && (
+                                                            <Badge tone="warning">
+                                                                In the cost
+                                                            </Badge>
+                                                        )}
                                                     </>
                                                 )}
                                             </td>
@@ -443,7 +495,21 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
                                 >
                                     {document.journal_entry_no}
                                 </Link>
-                                {document.issued_at === null ? '' : ` on ${document.issued_at}`}.
+                                {document.approved_at === null
+                                    ? ''
+                                    : ` on approval, ${document.approved_at}`}
+                                .
+                            </p>
+                        )}
+
+                        {hasBlockedTax && (
+                            <p className="text-content-muted text-xs">
+                                {formatMoney(document.tax_capitalised, {
+                                    currency: document.currency,
+                                    showCurrency: false,
+                                })}{' '}
+                                of the tax on this {type.label.toLowerCase()} cannot be reclaimed,
+                                so it is part of the cost rather than a receivable.
                             </p>
                         )}
 
@@ -489,6 +555,20 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
                             />
                         </div>
 
+                        {/*
+                         * Reclaimable tax is stated after the total, as a note
+                         * rather than a line: it does not change what the
+                         * vendor is owed, only what the purchase really costs.
+                         */}
+                        {!isZero(document.tax_total) && (
+                            <Total
+                                label="Reclaimable tax"
+                                value={document.tax_claimable_total}
+                                currency={document.currency}
+                                muted
+                            />
+                        )}
+
                         {!isZero(document.amount_paid) && (
                             <Total
                                 label="Paid"
@@ -510,7 +590,7 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
                         {type.has_due_date && document.is_issued && (
                             <div className="border-line-subtle border-t pt-2">
                                 <Total
-                                    label="Balance due"
+                                    label="Balance owed"
                                     value={document.balance_due}
                                     currency={document.currency}
                                     emphasis
@@ -538,7 +618,7 @@ export default function DocumentShow({ type, document, contact, baseCurrency, ca
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="text-content-muted border-line-subtle text-2xs border-b uppercase">
-                                    <th className="px-4 py-2 text-left font-medium">Receipt</th>
+                                    <th className="px-4 py-2 text-left font-medium">Payment</th>
                                     <th className="px-4 py-2 text-left font-medium">Date</th>
                                     <th className="px-4 py-2 text-right font-medium">Applied</th>
                                 </tr>
@@ -574,7 +654,7 @@ function VoidForm({
     posts,
     onClose,
 }: {
-    type: DocumentTypeProps;
+    type: PurchaseTypeProps;
     number: string;
     posts: boolean;
     onClose: () => void;
@@ -583,7 +663,7 @@ function VoidForm({
 
     const submit = (event: SyntheticEvent<HTMLFormElement>) => {
         event.preventDefault();
-        form.post(`/sales/${type.segment}/${number}/void`, { onSuccess: onClose });
+        form.post(`/purchases/${type.segment}/${number}/void`, { onSuccess: onClose });
     };
 
     return (
@@ -593,7 +673,7 @@ function VoidForm({
                     <h2 className="text-content text-md font-semibold">Void {number}</h2>
                     <p className="text-content-muted text-xs">
                         {posts
-                            ? 'A reversing entry is posted, and both stay in the ledger. The number is kept — a gap in the numbering reads as a concealed invoice.'
+                            ? 'A reversing entry is posted, and both stay in the ledger. The number is kept, so the sequence has no unexplained gap.'
                             : 'The document is withdrawn. Nothing was posted, so there is nothing to reverse.'}
                     </p>
                 </header>
@@ -605,7 +685,7 @@ function VoidForm({
                         value={form.data.reason}
                         onChange={(e) => form.setData('reason', e.target.value)}
                         error={form.errors.reason}
-                        placeholder="Why this is being withdrawn — the only explanation on the record."
+                        placeholder="Duplicate, wrong vendor, disputed — the only explanation on the record."
                         optional
                     />
                 </div>
@@ -634,15 +714,15 @@ function ConvertForm({
     number,
     onClose,
 }: {
-    type: DocumentTypeProps;
+    type: PurchaseTypeProps;
     number: string;
     onClose: () => void;
 }) {
-    const form = useForm({ to: type.convertible_to[0]?.value ?? 'invoice' });
+    const form = useForm({ to: type.convertible_to[0]?.value ?? 'bill' });
 
     const submit = (event: SyntheticEvent<HTMLFormElement>) => {
         event.preventDefault();
-        form.post(`/sales/${type.segment}/${number}/convert`);
+        form.post(`/purchases/${type.segment}/${number}/convert`);
     };
 
     return (
@@ -651,9 +731,9 @@ function ConvertForm({
                 <header className="border-line-subtle border-b px-4 py-3">
                     <h2 className="text-content text-md font-semibold">Convert {number}</h2>
                     <p className="text-content-muted text-xs">
-                        A copy is created as a draft, pointing back at this one. Nothing is issued —
-                        check the dates first, since the tax rates that apply are the new
-                        document&rsquo;s, not this one&rsquo;s.
+                        A draft bill is created from this order, priced as ordered and pointing back
+                        at it. Nothing is approved — comparing what the vendor charged against what
+                        was ordered is the whole point of the step.
                     </p>
                 </header>
 

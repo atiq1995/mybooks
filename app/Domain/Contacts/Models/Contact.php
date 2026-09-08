@@ -8,6 +8,7 @@ use App\Domain\Accounting\Enums\SystemAccount;
 use App\Domain\Accounting\Models\Account;
 use App\Domain\Contacts\Enums\ContactKind;
 use App\Domain\Organizations\Concerns\BelongsToOrganization;
+use App\Domain\Purchases\Models\PurchaseDocument;
 use App\Domain\Sales\Models\SalesDocument;
 use Brick\Math\BigDecimal;
 use Illuminate\Database\Eloquent\Builder;
@@ -102,6 +103,14 @@ final class Contact extends Model
     }
 
     /**
+     * @return HasMany<PurchaseDocument, $this>
+     */
+    public function purchaseDocuments(): HasMany
+    {
+        return $this->hasMany(PurchaseDocument::class);
+    }
+
+    /**
      * @return BelongsTo<Account, $this>
      */
     public function receivableAccount(): BelongsTo
@@ -137,6 +146,27 @@ final class Contact extends Model
     }
 
     /**
+     * The payable control account for this contact.
+     *
+     * The mirror of {@see receivableAccountId()}, and separate from it
+     * because a contact can be both a customer and a vendor — the same
+     * company buying from us and selling to us — and the two balances must
+     * never land in one account. Netting them would hide a receivable behind
+     * a payable and leave neither collectable nor payable on its own.
+     */
+    public function payableAccountId(): string
+    {
+        if ($this->payable_account_id !== null) {
+            return $this->payable_account_id;
+        }
+
+        return Account::query()
+            ->where('system_role', SystemAccount::AccountsPayable->value)
+            ->sole()
+            ->id;
+    }
+
+    /**
      * When an invoice issued today would fall due.
      *
      * Terms of zero means on receipt, which is the same date — not the next
@@ -162,6 +192,26 @@ final class Contact extends Model
             ->selectRaw('COALESCE(SUM(total - amount_paid - amount_credited), 0) AS owed')
             ->where('type', 'invoice')
             ->whereIn('status', ['sent', 'open', 'partially_paid', 'overdue'])
+            ->first();
+
+        return (string) BigDecimal::of((string) ($row->owed ?? '0'))->toScale(4);
+    }
+
+    /**
+     * What we currently owe this contact, from approved and unvoided bills
+     * less credits and payments.
+     *
+     * Summed from the documents for the same reason as the receivable side: a
+     * cached balance is a second source of truth, and the first time it
+     * drifts nobody can tell which figure is wrong.
+     */
+    public function payableBalance(): string
+    {
+        /** @var object{owed: string|null}|null $row */
+        $row = $this->purchaseDocuments()
+            ->selectRaw('COALESCE(SUM(total - amount_paid - amount_credited), 0) AS owed')
+            ->where('type', 'bill')
+            ->whereIn('status', ['open', 'partially_paid', 'overdue'])
             ->first();
 
         return (string) BigDecimal::of((string) ($row->owed ?? '0'))->toScale(4);

@@ -107,24 +107,10 @@ beforeEach(function (): void {
     );
 });
 
-/**
- * The lines of a journal entry, keyed by account code.
- *
- * @return array<string, array{debit: string, credit: string}>
- */
-function entryLines(JournalEntry $entry): array
-{
-    $lines = [];
-
-    foreach ($entry->lines()->with('account')->get() as $line) {
-        $lines[$line->account?->code ?? '?'] = [
-            'debit' => (string) $line->debit,
-            'credit' => (string) $line->credit,
-        ];
-    }
-
-    return $lines;
-}
+// entryLines() now lives in tests/Pest.php: the purchase lifecycle asserts
+// against it too, and a helper declared at the top level of a test file is
+// global to the process — so the second suite to want it either cannot see it
+// or collides with it, depending on how the parallel runner distributes files.
 
 describe('a draft', function (): void {
     it('computes and stores every total from the tax engine', function (): void {

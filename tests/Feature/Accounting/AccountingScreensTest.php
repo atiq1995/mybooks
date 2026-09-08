@@ -464,7 +464,11 @@ describe('the general ledger and trial balance', function (): void {
                 ->where('selected.code', $this->ar->code)
                 // Nothing before this month, so it opens at zero and closes at
                 // what moved.
-                ->where('ledger.opening', '0')
+                // At the money scale, like every other balance. An account
+                // with no movement sums to a bare 0 in PostgreSQL, and
+                // returning that unscaled made two equal balances compare
+                // unequal as strings.
+                ->where('ledger.opening', '0.0000')
                 ->where('ledger.movement_debit', '25000.0000')
                 ->where('ledger.closing', '25000.0000'),
             );
