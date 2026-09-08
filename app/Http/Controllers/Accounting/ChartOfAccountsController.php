@@ -273,7 +273,12 @@ final class ChartOfAccountsController extends Controller
         $rows = DB::table('journal_lines')
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')
-            ->where('journal_entries.status', 'posted')
+            /*
+             * No status filter. `reversed` means "a reversing entry exists",
+             * not "this never happened" — excluding the original while
+             * counting its reversal leaves the balance wrong by the whole
+             * value of anything that has been voided. See Account::balance().
+             */
             ->groupBy('journal_lines.account_id', 'accounts.normal_balance')
             ->selectRaw('journal_lines.account_id')
             ->selectRaw('accounts.normal_balance')

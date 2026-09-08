@@ -10,6 +10,7 @@ use App\Domain\Accounting\Models\FiscalYear;
 use App\Domain\Organizations\Enums\MembershipStatus;
 use App\Domain\Organizations\Models\Organization;
 use App\Domain\Organizations\Models\OrganizationMembership;
+use App\Domain\Tax\Actions\CreateDefaultTaxes;
 use App\Http\Middleware\EstablishTenantContext;
 use App\Models\User;
 use App\Support\Tenancy\TenantContext;
@@ -116,7 +117,17 @@ function withLedger(Organization $organization, ?int $startingYear = null): Fisc
 
     app(CreateChartOfAccounts::class)->handle($organization);
 
-    return app(CreateFiscalYear::class)->handle($organization, $startingYear);
+    $year = app(CreateFiscalYear::class)->handle($organization, $startingYear);
+
+    /*
+     * Taxes last, because their components point at the control accounts the
+     * chart just created. Same order as PrepareLedger, which is what
+     * onboarding runs — this helper exists to give a test the same starting
+     * point a real organisation has, not a reduced one.
+     */
+    app(CreateDefaultTaxes::class)->handle($organization);
+
+    return $year;
 }
 
 /**

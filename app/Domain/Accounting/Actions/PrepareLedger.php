@@ -7,12 +7,13 @@ namespace App\Domain\Accounting\Actions;
 use App\Domain\Accounting\Models\Account;
 use App\Domain\Accounting\Models\FiscalYear;
 use App\Domain\Organizations\Models\Organization;
+use App\Domain\Tax\Actions\CreateDefaultTaxes;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Gives an organisation the two things it needs before anything can post: a
- * chart of accounts and an open financial year.
+ * Gives an organisation the three things it needs before anything can post: a
+ * chart of accounts, an open financial year, and at least one tax rate.
  *
  * Both in one transaction, because half a ledger is worse than none — an
  * organisation with accounts but no periods looks ready and refuses every
@@ -28,10 +29,11 @@ final readonly class PrepareLedger
     public function __construct(
         private CreateChartOfAccounts $createChartOfAccounts,
         private CreateFiscalYear $createFiscalYear,
+        private CreateDefaultTaxes $createDefaultTaxes,
     ) {}
 
     /**
-     * @return array{accounts_created: int, fiscal_year: string}
+     * @return array{accounts_created: int, fiscal_year: string, taxes_created: int}
      */
     public function handle(Organization $organization, ?User $actor = null): array
     {
@@ -40,9 +42,16 @@ final readonly class PrepareLedger
 
             $year = $this->currentYear() ?? $this->createFiscalYear->handle($organization, actor: $actor);
 
+            /*
+             * Taxes come last, because their components point at the control
+             * accounts the chart just created.
+             */
+            $taxes = $this->createDefaultTaxes->handle($organization, $actor);
+
             return [
                 'accounts_created' => $created,
                 'fiscal_year' => $year->label,
+                'taxes_created' => $taxes,
             ];
         });
     }
@@ -50,13 +59,15 @@ final readonly class PrepareLedger
     /**
      * Whether this organisation can already post.
      *
-     * Both halves are required. Accounts alone are not enough, which is why
-     * this asks about periods too rather than counting accounts and assuming.
+     * All three parts are required. Accounts alone are not enough, which is
+     * why this asks about periods and taxes too rather than counting accounts
+     * and assuming.
      */
     public function isReady(): bool
     {
         return Account::query()->postable()->exists()
-            && FiscalYear::query()->exists();
+            && FiscalYear::query()->exists()
+            && $this->createDefaultTaxes->isReady();
     }
 
     /**

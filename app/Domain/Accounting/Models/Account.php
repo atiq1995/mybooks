@@ -115,9 +115,18 @@ final class Account extends Model
      */
     public function balance(?Carbon $asOf = null): string
     {
+        /*
+         * Every entry counts, including the ones marked `reversed`.
+         *
+         * That marking says "a reversing entry exists", not "this never
+         * happened" — the ledger is append-only, and both entries are real.
+         * Filtering to `posted` excludes the original while still counting
+         * its reversal, so a reversed invoice leaves the balance wrong by its
+         * whole value in the opposite direction. Nothing draft ever reaches
+         * these tables, so there is nothing else to filter out.
+         */
         $query = $this->journalLines()
-            ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
-            ->where('journal_entries.status', 'posted');
+            ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id');
 
         if ($asOf !== null) {
             $query->where('journal_entries.entry_date', '<=', $asOf->toDateString());
