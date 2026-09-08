@@ -7,7 +7,7 @@ Where the work stands. Read after `CLAUDE.md`, before doing anything.
 **Phase 0:** complete, verified, pushed (`085d102`).
 **Phase 1:** complete apart from two items listed under Gaps.
 
-**Gates, as of this update:** 268 tests / 1,649 assertions green; PHPStan
+**Gates, as of this update:** 276 tests / 1,673 assertions green; PHPStan
 level max clean; Pint clean; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`)
 clean; production asset build succeeds. Every figure in this document was
 observed, not assumed.
@@ -364,7 +364,7 @@ investigating a restore, a nightly job on the owner connection — so
 organisation the loop happened to be on. Every check now names the
 organisation explicitly.
 
-### Tests added (93 domain + 41 HTTP)
+### Tests added (93 domain + 41 HTTP + 8 under the runtime DB role)
 
 - `tests/Unit/Accounting/JournalDraftTest` — I1–I3 on pure drafts
 - `tests/Accounting/PostJournalEntryTest` — every refusal asserted twice, once
@@ -376,6 +376,8 @@ organisation explicitly.
   triggers disabled, the way a hand-written SQL fix would, and asserts the
   command notices and exits non-zero
 - `tests/Accounting/LedgerSetupTest` — chart and year, idempotence, no overlaps
+- `tests/Feature/Tenancy/LedgerRowLevelSecurityTest` — the ledger driven as
+  `my_books_app`, so the two isolation layers are proven to agree
 - `tests/Feature/Accounting/AccountingScreensTest` — authorisation asserted
   per **role** rather than per permission (a permission list that looks right
   while a role composes it wrongly would pass a permission-level test), plus
