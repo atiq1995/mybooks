@@ -7,7 +7,8 @@ Where the work stands. Read after `CLAUDE.md`, before doing anything.
 **Phase 0:** complete, verified, pushed (`085d102`).
 **Phase 1:** complete apart from two items listed under Gaps.
 
-**Gates, as of this update:** 315 tests / 1,820 assertions green; PHPStan
+**Gates, as of this update:** 322 tests / 1,874 assertions green (including 7 browser tests against a
+real Chromium); PHPStan
 level max clean; Pint clean; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`)
 clean; production asset build succeeds. Every figure in this document was
 observed, not assumed.
@@ -397,14 +398,12 @@ organisation explicitly.
       revaluation with next-day reversal, FX gain/loss posting
 - [x] Year-end close — profit or loss to retained earnings, periods closed
       (not locked), reversible like any other entry
-- [ ] Committed browser suite for the accounting screens
+- [x] Committed browser suite — 7 journeys through a real Chromium
 
 ---
 
 ## Next
 
 1. Realised FX on settlement (§4.11) — waits on payments, in Phase 4
-3. Browser (Pest 4) suite over the five accounting screens — the visual
-   review gate in `CLAUDE.md` has been met by hand, not by a committed test
-4. Phase 1 leftovers: organisation settings screen; committed browser E2E
-5. Then Phase 3 — Sales
+2. Phase 1 leftover: an organisation settings screen
+3. Then Phase 3 — Sales

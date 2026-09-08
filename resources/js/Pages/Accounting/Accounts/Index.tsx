@@ -528,6 +528,7 @@ function AccountForm({
                     {!isEdit && (
                         <Input
                             label="Code"
+                            name="code"
                             value={form.data.code}
                             onChange={(e) => form.setData('code', e.target.value)}
                             error={form.errors.code}
@@ -539,6 +540,7 @@ function AccountForm({
 
                     <Input
                         label="Name"
+                        name="name"
                         value={form.data.name}
                         onChange={(e) => form.setData('name', e.target.value)}
                         error={form.errors.name}
@@ -548,6 +550,7 @@ function AccountForm({
 
                     <Select
                         label="Type"
+                        name="type"
                         value={form.data.type}
                         onChange={(e) => changeType(e.target.value)}
                         error={form.errors.type}
@@ -562,6 +565,7 @@ function AccountForm({
 
                     <Select
                         label="Normal balance"
+                        name="normal_balance"
                         value={form.data.normal_balance}
                         onChange={(e) => form.setData('normal_balance', e.target.value)}
                         error={form.errors.normal_balance}

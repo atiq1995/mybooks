@@ -267,6 +267,7 @@ function ReverseForm({ entryNo, onClose }: { entryNo: string; onClose: () => voi
                 <div className="grid gap-4 p-4 sm:grid-cols-[12rem_1fr]">
                     <Input
                         label="Reversal date"
+                        name="date"
                         type="date"
                         value={form.data.date}
                         onChange={(e) => form.setData('date', e.target.value)}
@@ -277,6 +278,7 @@ function ReverseForm({ entryNo, onClose }: { entryNo: string; onClose: () => voi
 
                     <Input
                         label="Reason"
+                        name="reason"
                         value={form.data.reason}
                         onChange={(e) => form.setData('reason', e.target.value)}
                         error={form.errors.reason}

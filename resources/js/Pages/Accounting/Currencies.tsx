@@ -377,6 +377,7 @@ function RateForm({
                     {foreignCurrencies.length > 0 ? (
                         <Select
                             label="From"
+                            name="from_currency"
                             value={form.data.from_currency}
                             onChange={(e) => form.setData('from_currency', e.target.value)}
                             error={form.errors.from_currency}
@@ -386,6 +387,7 @@ function RateForm({
                     ) : (
                         <Input
                             label="From"
+                            name="from_currency"
                             value={form.data.from_currency}
                             onChange={(e) => form.setData('from_currency', e.target.value)}
                             error={form.errors.from_currency}
@@ -396,6 +398,7 @@ function RateForm({
 
                     <Input
                         label="To"
+                        name="to_currency"
                         value={form.data.to_currency}
                         onChange={(e) => form.setData('to_currency', e.target.value)}
                         error={form.errors.to_currency}
@@ -405,6 +408,7 @@ function RateForm({
 
                     <Input
                         label="Rate"
+                        name="rate"
                         // Text, not number: a number input hands back a float,
                         // and a rate carries ten decimal places.
                         inputMode="decimal"
@@ -418,6 +422,7 @@ function RateForm({
 
                     <Input
                         label="Effective from"
+                        name="effective_on"
                         type="date"
                         value={form.data.effective_on}
                         onChange={(e) => form.setData('effective_on', e.target.value)}

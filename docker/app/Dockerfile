@@ -89,14 +89,42 @@ ENV COMPOSER_ALLOW_SUPERUSER=1 \
 # ---------------------------------------------------------------------------
 # dev — full toolchain, source arrives via bind mount at runtime
 #
-# No Node here: the Vite dev server runs as its own container, so the PHP
-# image stays a PHP image.
+# Node is here only for the browser suite (Playwright). The Vite dev server
+# still runs as its own container — this image never builds assets.
 # ---------------------------------------------------------------------------
 FROM base AS dev
 
 # pcov alongside xdebug: pcov collects code coverage several times faster,
 # xdebug is for actually stepping through a failing accounting calculation.
 RUN install-php-extensions xdebug pcov
+
+# Node and a browser, for the Pest browser suite.
+#
+# DEV stage only. A production image has no business carrying a browser: it is
+# several hundred megabytes of attack surface that never serves a request.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Playwright's own Chromium, not Debian's.
+#
+# Playwright pins a browser build per release and refuses to drive anything
+# else — there is no supported way to point it at the system package, and
+# trying produces "Playwright was just installed or updated" at the first
+# navigation.
+#
+# It installs into PLAYWRIGHT_BROWSERS_PATH rather than node_modules, which is
+# what makes this bakeable: /app/node_modules is a named volume in
+# development, so anything written there at build time is masked at run time.
+# The version is pinned to what the plugin requires — see PLAYWRIGHT_VERSION
+# in pest-plugin-browser — and the CLI is removed afterwards, since the
+# project's own devDependency provides it at run time.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+RUN npm install -g playwright@1.63.0 \
+    && playwright install --with-deps chromium \
+    && npm uninstall -g playwright \
+    && npm cache clean --force
 
 # Xdebug stays installed but OFF, because it roughly halves PHP throughput.
 # Enable per command:  XDEBUG_MODE=debug php artisan ...

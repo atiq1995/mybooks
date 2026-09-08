@@ -150,6 +150,7 @@ export default function CreateJournal({
                     <div className="grid gap-4 sm:grid-cols-[12rem_1fr]">
                         <Input
                             label="Date"
+                            name="date"
                             type="date"
                             value={form.data.date}
                             onChange={(e) => form.setData('date', e.target.value)}
@@ -160,6 +161,7 @@ export default function CreateJournal({
 
                         <Input
                             label="Memo"
+                            name="memo"
                             value={form.data.memo}
                             onChange={(e) => form.setData('memo', e.target.value)}
                             error={form.errors.memo}
@@ -172,6 +174,7 @@ export default function CreateJournal({
                         <label className="text-content-secondary mt-4 flex items-start gap-2 text-sm">
                             <input
                                 type="checkbox"
+                                name="post_to_closed_period"
                                 checked={form.data.post_to_closed_period}
                                 onChange={(e) =>
                                     form.setData('post_to_closed_period', e.target.checked)
@@ -238,6 +241,7 @@ export default function CreateJournal({
                                         <td className="px-3 py-2">
                                             <Select
                                                 aria-label={`Account for line ${index + 1}`}
+                                                name={`lines.${index}.account_id`}
                                                 value={line.account_id}
                                                 onChange={(e) =>
                                                     setLine(index, { account_id: e.target.value })
@@ -250,6 +254,7 @@ export default function CreateJournal({
                                         <td className="px-3 py-2">
                                             <Select
                                                 aria-label={`Side for line ${index + 1}`}
+                                                name={`lines.${index}.side`}
                                                 value={line.side}
                                                 onChange={(e) =>
                                                     setLine(index, {
@@ -266,6 +271,7 @@ export default function CreateJournal({
                                         <td className="px-3 py-2">
                                             <Input
                                                 aria-label={`Amount for line ${index + 1}`}
+                                                name={`lines.${index}.amount`}
                                                 value={line.amount}
                                                 onChange={(e) =>
                                                     setLine(index, { amount: e.target.value })
@@ -288,6 +294,7 @@ export default function CreateJournal({
                                         <td className="px-3 py-2">
                                             <Input
                                                 aria-label={`Memo for line ${index + 1}`}
+                                                name={`lines.${index}.memo`}
                                                 value={line.memo}
                                                 onChange={(e) =>
                                                     setLine(index, { memo: e.target.value })

@@ -10,15 +10,12 @@
         "build": "tsc --noEmit && vite build",
         "build:ssr": "vite build && vite build --ssr",
         "preview": "vite preview",
-
         "typecheck": "tsc --noEmit",
         "lint": "eslint resources/js --max-warnings=0",
         "lint:fix": "eslint resources/js --fix",
         "format": "prettier --check resources/js resources/css",
         "format:fix": "prettier --write resources/js resources/css",
-
         "check": "npm run typecheck && npm run lint && npm run format",
-
         "test": "vitest run",
         "test:watch": "vitest"
     },
@@ -53,6 +50,7 @@
         "globals": "^17.12.0",
         "jsdom": "^30.0.1",
         "laravel-vite-plugin": "^3.2.0",
+        "playwright": "^1.63.0",
         "prettier": "^3.9.6",
         "prettier-plugin-tailwindcss": "^0.8.1",
         "tailwindcss": "^4.3.3",
@@ -67,11 +65,21 @@
         "trailingComma": "all",
         "printWidth": 100,
         "tabWidth": 4,
-        "plugins": ["prettier-plugin-tailwindcss"],
+        "plugins": [
+            "prettier-plugin-tailwindcss"
+        ],
         "overrides": [
             {
-                "files": ["*.css", "*.json", "*.yml", "*.yaml", "*.md"],
-                "options": { "tabWidth": 2 }
+                "files": [
+                    "*.css",
+                    "*.json",
+                    "*.yml",
+                    "*.yaml",
+                    "*.md"
+                ],
+                "options": {
+                    "tabWidth": 2
+                }
             }
         ]
     }
