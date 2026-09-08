@@ -61,14 +61,58 @@ export const NAVIGATION: NavSection[] = [
         icon: Receipt,
         match: '/sales',
         phase: 3,
+        route: 'sales.documents.index',
         items: [
-            { label: 'Customers', match: '/sales/customers', phase: 3 },
-            { label: 'Estimates', match: '/sales/estimates', phase: 3 },
-            { label: 'Sales Orders', match: '/sales/orders', phase: 3 },
-            { label: 'Invoices', match: '/sales/invoices', phase: 3, badge: 'overdue_invoices' },
-            { label: 'Recurring Invoices', match: '/sales/recurring-invoices', phase: 3 },
-            { label: 'Payments Received', match: '/sales/payments', phase: 3 },
-            { label: 'Credit Notes', match: '/sales/credit-notes', phase: 3 },
+            {
+                label: 'Customers',
+                route: 'sales.contacts.index',
+                match: '/sales/customers',
+                phase: 3,
+            },
+            { label: 'Items', route: 'sales.items.index', match: '/sales/items', phase: 3 },
+            {
+                label: 'Estimates',
+                route: 'sales.documents.index',
+                match: '/sales/estimates',
+                phase: 3,
+            },
+            {
+                label: 'Sales Orders',
+                route: 'sales.documents.index',
+                match: '/sales/sales-orders',
+                phase: 3,
+            },
+            {
+                label: 'Invoices',
+                route: 'sales.documents.index',
+                match: '/sales/invoices',
+                phase: 3,
+                badge: 'overdue_invoices',
+            },
+            {
+                label: 'Payments Received',
+                route: 'sales.payments.index',
+                match: '/sales/payments',
+                phase: 3,
+            },
+            {
+                label: 'Credit Notes',
+                route: 'sales.documents.index',
+                match: '/sales/credit-notes',
+                phase: 3,
+            },
+            {
+                label: 'Receivables',
+                route: 'sales.receivables',
+                match: '/sales/receivables',
+                phase: 3,
+            },
+            /*
+             * Recurring invoices need a scheduler and a template model, both
+             * of which are their own piece of work — so the entry stays
+             * padlocked rather than pretending.
+             */
+            { label: 'Recurring Invoices', match: '/sales/recurring-invoices', phase: 4 },
         ],
     },
     {
@@ -188,7 +232,10 @@ export const NAVIGATION: NavSection[] = [
     {
         label: 'Contacts',
         icon: Users,
-        match: '/contacts',
+        // No screen of its own: customers and vendors live under Sales, which
+        // is where people look for them.
+        route: 'sales.contacts.index',
+        match: '/sales/customers',
         phase: 3,
     },
     {
@@ -212,7 +259,7 @@ export const NAVIGATION: NavSection[] = [
  *
  * Raise this as each phase lands.
  */
-export const CURRENT_PHASE = 2;
+export const CURRENT_PHASE = 3;
 
 export function isAvailable(phase: number): boolean {
     return phase <= CURRENT_PHASE;

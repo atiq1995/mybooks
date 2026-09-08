@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\ParallelTesting;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -56,12 +58,86 @@ final class AppServiceProvider extends ServiceProvider
         $this->configureModels();
         $this->configureDatabase();
         $this->configurePasswords();
+        $this->configureParallelTesting();
 
         // Tenant context has to survive the queue boundary, or every job that
         // touches organisation-scoped data dies against row-level security.
         QueueTenancy::register($this->app);
 
         Date::use(Carbon::class);
+    }
+
+    /**
+     * Give each parallel worker's database the two-role arrangement.
+     *
+     * `docker/postgres/init/03-test-database.sql` sets this up for
+     * `my_books_test`, but Pest's parallel runner creates one database per
+     * worker — `my_books_test_test_1` and so on — from template1, which
+     * carries neither the grants nor the default privileges. The runtime role
+     * then has no rights on any table, so every test that does `SET ROLE
+     * my_books_app` to observe row-level security dies with "permission
+     * denied" instead of testing anything.
+     *
+     * That is the worst possible failure for these particular tests: they are
+     * the only ones that exercise the second isolation layer at all, since
+     * the rest of the suite connects as the schema owner and bypasses RLS.
+     * A permission error looks enough like a refusal to be mistaken for one.
+     *
+     * @see docs/adr/0002-multi-tenancy.md
+     */
+    private function configureParallelTesting(): void
+    {
+        if (! $this->app->runningUnitTests()) {
+            return;
+        }
+
+        /*
+         * Checked rather than applied blindly, and checked per test case
+         * rather than once.
+         *
+         * Laravel only fires its own setUpTestDatabase hook for a database it
+         * has just created, so a hook alone would work on CI and quietly not
+         * work on any machine that already has worker databases from an
+         * earlier run — the two would disagree about whether the second
+         * isolation layer is tested at all. The probe is one catalogue lookup
+         * and it self-heals, so both cases end up the same.
+         *
+         * The first test case in a worker runs before RefreshDatabase has
+         * migrated, so there is nothing to grant on yet; leaving the flag
+         * unset means the next one tries again.
+         */
+        $granted = false;
+
+        ParallelTesting::setUpTestCase(function () use (&$granted): void {
+            if ($granted || ! Schema::hasTable('organizations')) {
+                return;
+            }
+
+            $granted = true;
+
+            if (DB::scalar("SELECT has_table_privilege('my_books_app', 'organizations', 'SELECT')") === true) {
+                return;
+            }
+
+            DB::unprepared(<<<'SQL'
+                GRANT USAGE ON SCHEMA public TO my_books_app;
+
+                GRANT SELECT, INSERT, UPDATE, DELETE
+                    ON ALL TABLES IN SCHEMA public TO my_books_app;
+                GRANT USAGE, SELECT
+                    ON ALL SEQUENCES IN SCHEMA public TO my_books_app;
+
+                ALTER DEFAULT PRIVILEGES FOR ROLE my_books IN SCHEMA public
+                    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO my_books_app;
+                ALTER DEFAULT PRIVILEGES FOR ROLE my_books IN SCHEMA public
+                    GRANT USAGE, SELECT ON SEQUENCES TO my_books_app;
+
+                -- The runtime role owns nothing and creates nothing. Stated
+                -- here as well as in the container's init script, because
+                -- this database was not built by that script.
+                REVOKE CREATE ON SCHEMA public FROM my_books_app;
+            SQL);
+        });
     }
 
     private function configureModels(): void

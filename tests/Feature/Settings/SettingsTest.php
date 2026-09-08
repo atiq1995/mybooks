@@ -196,11 +196,11 @@ it('routes every settings screen to its own page, not the placeholder', function
             ->assertInertia(fn (Assert $page) => $page->component($component));
     }
 
-    // ...while a settings area that genuinely is not built still lands on the
-    // placeholder rather than 404ing.
+    // Tax rates arrived with the sales module: they are configuration, but
+    // nothing can be invoiced without them.
     $this->get('/settings/taxes')
         ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page->component('ModulePlaceholder'));
+        ->assertInertia(fn (Assert $page) => $page->component('Settings/Taxes'));
 });
 
 it('turns guests away from every settings screen', function (): void {

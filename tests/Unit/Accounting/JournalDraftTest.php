@@ -20,9 +20,15 @@ use Illuminate\Support\Carbon;
 | @see ACCOUNTING_RULES.md §1, I1-I3
 */
 
-const AR = '01926f00-0000-7000-8000-000000000001';
-const REVENUE = '01926f00-0000-7000-8000-000000000002';
-const GST = '01926f00-0000-7000-8000-000000000003';
+/*
+ * Prefixed, because a top-level `const` in a Pest file is global to the PHP
+ * process, not to the file. Two test files each declaring AR pass on their
+ * own and fail the moment the parallel runner puts both in one worker — which
+ * it does or does not depending on how many test files exist. Keep the prefix.
+ */
+const DRAFT_AR = '01926f00-0000-7000-8000-000000000001';
+const DRAFT_REVENUE = '01926f00-0000-7000-8000-000000000002';
+const DRAFT_GST = '01926f00-0000-7000-8000-000000000003';
 
 function draft(array $lines, string $currency = 'PKR', string $rate = '1', string $base = 'PKR'): JournalDraft
 {
@@ -38,26 +44,26 @@ function draft(array $lines, string $currency = 'PKR', string $rate = '1', strin
 
 describe('a line', function (): void {
     it('refuses a negative debit, because that is a credit wearing a disguise', function (): void {
-        expect(fn () => JournalLineDraft::debit(AR, '-100.00'))
+        expect(fn () => JournalLineDraft::debit(DRAFT_AR, '-100.00'))
             ->toThrow(InvalidArgumentException::class, 'cannot be negative');
     });
 
     it('refuses a negative credit for the same reason', function (): void {
-        expect(fn () => JournalLineDraft::credit(REVENUE, '-100.00'))
+        expect(fn () => JournalLineDraft::credit(DRAFT_REVENUE, '-100.00'))
             ->toThrow(InvalidArgumentException::class, 'cannot be negative');
     });
 
     it('refuses a zero amount on either side', function (): void {
-        expect(fn () => JournalLineDraft::debit(AR, '0'))
+        expect(fn () => JournalLineDraft::debit(DRAFT_AR, '0'))
             ->toThrow(InvalidArgumentException::class, 'carries no information');
 
-        expect(fn () => JournalLineDraft::credit(AR, '0.0000'))
+        expect(fn () => JournalLineDraft::credit(DRAFT_AR, '0.0000'))
             ->toThrow(InvalidArgumentException::class, 'carries no information');
     });
 
     it('has exactly one side', function (): void {
-        $debit = JournalLineDraft::debit(AR, '100');
-        $credit = JournalLineDraft::credit(REVENUE, '100');
+        $debit = JournalLineDraft::debit(DRAFT_AR, '100');
+        $credit = JournalLineDraft::credit(DRAFT_REVENUE, '100');
 
         expect((string) $debit->debitValue())->toBeDecimal('100.0000');
         expect((string) $debit->creditValue())->toBeDecimal('0');
@@ -69,20 +75,20 @@ describe('a line', function (): void {
     });
 
     it('rounds to four decimal places on construction, once', function (): void {
-        expect((string) JournalLineDraft::debit(AR, '100.00005')->debitValue())->toBeDecimal('100.0001');
-        expect((string) JournalLineDraft::debit(AR, '100.00004')->debitValue())->toBeDecimal('100.0000');
+        expect((string) JournalLineDraft::debit(DRAFT_AR, '100.00005')->debitValue())->toBeDecimal('100.0001');
+        expect((string) JournalLineDraft::debit(DRAFT_AR, '100.00004')->debitValue())->toBeDecimal('100.0000');
     });
 
     it('swaps sides when reversed, keeping the amount exactly', function (): void {
-        $reversed = JournalLineDraft::debit(AR, '1234.5678')->reversed();
+        $reversed = JournalLineDraft::debit(DRAFT_AR, '1234.5678')->reversed();
 
         expect((string) $reversed->creditValue())->toBeDecimal('1234.5678');
         expect((string) $reversed->debitValue())->toBeDecimal('0');
-        expect($reversed->accountId)->toBe(AR);
+        expect($reversed->accountId)->toBe(DRAFT_AR);
     });
 
     it('converts to base currency at the entry rate', function (): void {
-        $line = JournalLineDraft::debit(AR, '100');
+        $line = JournalLineDraft::debit(DRAFT_AR, '100');
 
         expect((string) $line->debitBaseValue('278.5000000000'))->toBeDecimal('27850.0000');
         expect((string) $line->creditBaseValue('278.5000000000'))->toBeDecimal('0');
@@ -91,7 +97,7 @@ describe('a line', function (): void {
     it('prefers an explicit base amount over the entry rate', function (): void {
         // A settlement fixed at a rate other than the entry's own. Recomputing
         // would silently invent an FX difference.
-        $line = JournalLineDraft::debit(AR, '100', baseAmountOverride: '27000.0000');
+        $line = JournalLineDraft::debit(DRAFT_AR, '100', baseAmountOverride: '27000.0000');
 
         expect((string) $line->debitBaseValue('278.5'))->toBeDecimal('27000.0000');
     });
@@ -100,9 +106,9 @@ describe('a line', function (): void {
 describe('a draft', function (): void {
     it('accepts an entry whose debits equal its credits', function (): void {
         $draft = draft([
-            JournalLineDraft::debit(AR, '117100.00'),
-            JournalLineDraft::credit(REVENUE, '100000.00'),
-            JournalLineDraft::credit(GST, '17100.00'),
+            JournalLineDraft::debit(DRAFT_AR, '117100.00'),
+            JournalLineDraft::credit(DRAFT_REVENUE, '100000.00'),
+            JournalLineDraft::credit(DRAFT_GST, '17100.00'),
         ]);
 
         expect($draft->isBalanced())->toBeTrue();
@@ -114,8 +120,8 @@ describe('a draft', function (): void {
 
     it('refuses an entry that is out by the smallest representable amount', function (): void {
         $draft = draft([
-            JournalLineDraft::debit(AR, '100.0000'),
-            JournalLineDraft::credit(REVENUE, '99.9999'),
+            JournalLineDraft::debit(DRAFT_AR, '100.0000'),
+            JournalLineDraft::credit(DRAFT_REVENUE, '99.9999'),
         ]);
 
         expect($draft->isBalanced())->toBeFalse();
@@ -132,8 +138,8 @@ describe('a draft', function (): void {
         // Balanced, but says nothing. A zero-value entry is a bug upstream,
         // not a transaction.
         $lines = [
-            JournalLineDraft::debit(AR, '100'),
-            JournalLineDraft::credit(REVENUE, '100'),
+            JournalLineDraft::debit(DRAFT_AR, '100'),
+            JournalLineDraft::credit(DRAFT_REVENUE, '100'),
         ];
 
         $balanced = draft($lines);
@@ -153,8 +159,8 @@ describe('a draft', function (): void {
          */
         $draft = draft(
             lines: [
-                JournalLineDraft::debit(AR, '100'),
-                JournalLineDraft::credit(REVENUE, '100', baseAmountOverride: '27000.0000'),
+                JournalLineDraft::debit(DRAFT_AR, '100'),
+                JournalLineDraft::credit(DRAFT_REVENUE, '100', baseAmountOverride: '27000.0000'),
             ],
             currency: 'USD',
             rate: '278.5',
@@ -175,10 +181,10 @@ describe('a draft', function (): void {
         // Three thirds of a rupee: rounding each line would total 1.0001 or
         // 0.9999 depending on direction. Rounding once totals exactly 1.
         $draft = draft([
-            JournalLineDraft::debit(AR, '1.0000'),
-            JournalLineDraft::credit(REVENUE, '0.3333'),
-            JournalLineDraft::credit(REVENUE, '0.3333'),
-            JournalLineDraft::credit(REVENUE, '0.3334'),
+            JournalLineDraft::debit(DRAFT_AR, '1.0000'),
+            JournalLineDraft::credit(DRAFT_REVENUE, '0.3333'),
+            JournalLineDraft::credit(DRAFT_REVENUE, '0.3333'),
+            JournalLineDraft::credit(DRAFT_REVENUE, '0.3334'),
         ]);
 
         expect((string) $draft->totalCredit())->toBeDecimal('1.0000');
@@ -192,14 +198,14 @@ describe('a draft', function (): void {
             baseCurrency: 'PKR',
             exchangeRate: '1',
             lines: [
-                JournalLineDraft::debit(AR, '10'),
-                JournalLineDraft::credit(REVENUE, '10'),
+                JournalLineDraft::debit(DRAFT_AR, '10'),
+                JournalLineDraft::credit(DRAFT_REVENUE, '10'),
             ],
-            source: ['invoice', AR, 'settle'],
+            source: ['invoice', DRAFT_AR, 'settle'],
         );
 
         expect($draft->sourceType())->toBe('invoice');
-        expect($draft->sourceId())->toBe(AR);
+        expect($draft->sourceId())->toBe(DRAFT_AR);
         expect($draft->sourcePurpose())->toBe('settle');
     });
 
@@ -208,8 +214,8 @@ describe('a draft', function (): void {
             date: Carbon::parse('2026-08-15'),
             currency: 'PKR',
             lines: [
-                JournalLineDraft::debit(AR, '250.50'),
-                JournalLineDraft::credit(REVENUE, '250.50'),
+                JournalLineDraft::debit(DRAFT_AR, '250.50'),
+                JournalLineDraft::credit(DRAFT_REVENUE, '250.50'),
             ],
             source: ['manual', null, 'issue'],
         );

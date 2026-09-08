@@ -134,3 +134,20 @@ export function isPositiveAmount(value: string): boolean {
 
     return Number.isFinite(parsed) && parsed > 0;
 }
+
+export function multiplyForDisplay(a: DecimalString, b: DecimalString): DecimalString {
+    return (Number(a) * Number(b)).toFixed(SCALE);
+}
+
+/**
+ * Division for display, at rate precision rather than money precision.
+ *
+ * Ten places, because the result of this is usually multiplied again — a
+ * percentage turned into a fraction, say — and rounding it to money scale
+ * first would lose the part that matters.
+ */
+export function divideForDisplay(a: DecimalString, b: DecimalString): DecimalString {
+    const divisor = Number(b);
+
+    return divisor === 0 ? '0' : (Number(a) / divisor).toFixed(10);
+}

@@ -16,10 +16,16 @@ use App\Http\Controllers\ModulePlaceholderController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OrganizationSwitchController;
+use App\Http\Controllers\Sales\ContactController;
+use App\Http\Controllers\Sales\ItemController;
+use App\Http\Controllers\Sales\PaymentController;
+use App\Http\Controllers\Sales\ReceivablesReportController;
+use App\Http\Controllers\Sales\SalesDocumentController;
 use App\Http\Controllers\Settings\AppearancePreferencesController;
 use App\Http\Controllers\Settings\MemberController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
+use App\Http\Controllers\Settings\TaxController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -170,6 +176,94 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
         Route::post('/fiscal-years/{year}/close', [FiscalPeriodController::class, 'closeYear'])
             ->name('fiscal-years.close');
     });
+
+    /*
+     * Sales.
+     *
+     * The four document types share one controller and one set of routes,
+     * because they share one model — the type arrives as a URL segment, so
+     * /sales/invoices and /sales/estimates are the same code with a different
+     * label. Registered before the placeholder catch-all, which matches
+     * /sales and would otherwise swallow all of it.
+     */
+    Route::prefix('sales')->name('sales.')->group(function (): void {
+        Route::redirect('/', '/sales/invoices');
+
+        // Customers and vendors. Under sales because that is where people
+        // look for them; the vendor filter serves purchases too.
+        Route::get('/customers', [ContactController::class, 'index'])->name('contacts.index');
+        Route::post('/customers', [ContactController::class, 'store'])->name('contacts.store');
+        Route::get('/customers/{contact}', [ContactController::class, 'show'])->name('contacts.show');
+        Route::patch('/customers/{contact}', [ContactController::class, 'update'])
+            ->name('contacts.update');
+        // Archive, never delete: a contact with documents is referenced by
+        // history that has to stay readable.
+        Route::delete('/customers/{contact}', [ContactController::class, 'archive'])
+            ->name('contacts.archive');
+        Route::post('/customers/{contact}/restore', [ContactController::class, 'restore'])
+            ->name('contacts.restore');
+
+        Route::get('/items', [ItemController::class, 'index'])->name('items.index');
+        Route::post('/items', [ItemController::class, 'store'])->name('items.store');
+        Route::patch('/items/{item}', [ItemController::class, 'update'])->name('items.update');
+        Route::delete('/items/{item}', [ItemController::class, 'archive'])->name('items.archive');
+        Route::post('/items/{item}/restore', [ItemController::class, 'restore'])
+            ->name('items.restore');
+
+        Route::get('/payments', [PaymentController::class, 'index'])->name('payments.index');
+        Route::get('/payments/new', [PaymentController::class, 'create'])->name('payments.create');
+        Route::post('/payments', [PaymentController::class, 'store'])->name('payments.store');
+        // Its own endpoint so choosing a customer does not reload the form
+        // and lose what has already been typed.
+        Route::get('/payments/outstanding/{contact}', [PaymentController::class, 'outstanding'])
+            ->name('payments.outstanding');
+
+        Route::get('/receivables', [ReceivablesReportController::class, 'index'])->name('receivables');
+
+        /*
+         * The document routes, last within this group: the {type} segment
+         * would otherwise match 'customers', 'items' and the rest.
+         */
+        Route::get('/{type}', [SalesDocumentController::class, 'index'])
+            ->name('documents.index')
+            ->where('type', 'estimates|sales-orders|invoices|credit-notes');
+        Route::get('/{type}/new', [SalesDocumentController::class, 'edit'])
+            ->name('documents.create')
+            ->where('type', 'estimates|sales-orders|invoices|credit-notes');
+        Route::post('/{type}', [SalesDocumentController::class, 'store'])
+            ->name('documents.store')
+            ->where('type', 'estimates|sales-orders|invoices|credit-notes');
+        Route::get('/{type}/{number}', [SalesDocumentController::class, 'show'])
+            ->name('documents.show')
+            ->where('type', 'estimates|sales-orders|invoices|credit-notes');
+        Route::get('/{type}/{number}/edit', [SalesDocumentController::class, 'edit'])
+            ->name('documents.edit')
+            ->where('type', 'estimates|sales-orders|invoices|credit-notes');
+        Route::patch('/{type}/{number}', [SalesDocumentController::class, 'update'])
+            ->name('documents.update')
+            ->where('type', 'estimates|sales-orders|invoices|credit-notes');
+        Route::post('/{type}/{number}/issue', [SalesDocumentController::class, 'issue'])
+            ->name('documents.issue')
+            ->where('type', 'estimates|sales-orders|invoices|credit-notes');
+        Route::post('/{type}/{number}/void', [SalesDocumentController::class, 'void'])
+            ->name('documents.void')
+            ->where('type', 'estimates|sales-orders|invoices|credit-notes');
+        Route::post('/{type}/{number}/convert', [SalesDocumentController::class, 'convert'])
+            ->name('documents.convert')
+            ->where('type', 'estimates|sales-orders|invoices|credit-notes');
+        Route::delete('/{type}/{number}', [SalesDocumentController::class, 'destroy'])
+            ->name('documents.destroy')
+            ->where('type', 'estimates|sales-orders|invoices|credit-notes');
+    });
+
+    // Tax rates. Under settings because they are configuration, not a
+    // day-to-day screen — but the sales module cannot work without them.
+    Route::get('/settings/taxes', [TaxController::class, 'index'])->name('settings.taxes');
+    Route::post('/settings/taxes', [TaxController::class, 'store'])->name('settings.taxes.store');
+    Route::patch('/settings/taxes/{tax}', [TaxController::class, 'update'])
+        ->name('settings.taxes.update');
+    Route::delete('/settings/taxes/{tax}', [TaxController::class, 'archive'])
+        ->name('settings.taxes.archive');
     /*
      * Everything the navigation advertises but that has not been built yet.
      *

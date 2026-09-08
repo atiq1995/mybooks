@@ -3,15 +3,19 @@
 Where the work stands. Read after `CLAUDE.md`, before doing anything.
 
 **Updated:** 2026-09-08
-**Phase:** 2 — Accounting core — **in progress**
+**Phase:** 3 — Sales — **complete apart from three deferred items** (listed at
+the end of the Phase 3 section)
 **Phase 0:** complete, verified, pushed (`085d102`).
 **Phase 1:** complete apart from two items listed under Gaps.
+**Phase 2:** complete; every exit criterion met bar opening balances, which
+was deliberately deferred here because it needs contacts and items.
 
-**Gates, as of this update:** 322 tests / 1,874 assertions green (including 7 browser tests against a
-real Chromium); PHPStan
-level max clean; Pint clean; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`)
-clean; production asset build succeeds. Every figure in this document was
-observed, not assumed.
+**Gates, as of this update:** 444 tests / 2,403 assertions green — 77 Unit,
+226 Feature, 134 Accounting, 7 Browser against a real Chromium; the accounting
+suite also re-run serially, as it asserts ledger-wide state. PHPStan level max
+clean; Pint clean; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`) clean;
+production asset build succeeds. Every figure in this document was observed,
+not assumed.
 
 ### Phase 1 (complete)
 
@@ -265,8 +269,8 @@ starting; all are listed so nobody is surprised.
 | Browser (E2E) suite | Directory + README only; Pest browser plugin installed, Playwright not wired into the app image | Phase 1 |
 | Component gallery page | Primitives exist; no in-app gallery yet | Phase 1 |
 | `my-books:verify-ledger` command | Referenced by Dockerfile HEALTHCHECK docs and restore.sh; does not exist yet | Phase 2 (with the ledger) |
-| API `/api/v1` | Sanctum installed, no routes | Phase 3 |
-| Git | Repository initialised; **nothing committed yet** | Ask owner |
+| API `/api/v1` | Sanctum installed, no routes. Not started in Phase 3 — the screens came first, and the API should serialise a settled domain rather than a moving one | Phase 4 |
+| Git | Committed and pushed to `origin/main` through Phase 3 | — |
 
 Resolved during the session and worth knowing about: the Feature suite took
 ~190 s on the Windows bind mount until opcache CLI was enabled with
@@ -402,8 +406,155 @@ organisation explicitly.
 
 ---
 
+## Phase 3 — Sales
+
+### Schema
+
+- `taxes` and `tax_components` — a tax is a named container, its rates live in
+  dated components. A rate change is a new component, never an edit: an
+  invoice filed under 17% must still read as 17% after the rate becomes 18%.
+- `contacts` — customers and vendors in one table with a `kind`, because in
+  practice the same company is often both.
+- `items` — goods and services, with the revenue and expense account each
+  posts to. `is_tracked` exists but inventory movement does not (Phase 8).
+- `sales_documents` and `sales_document_lines` — one table for estimates,
+  sales orders, invoices and credit notes. They share a lifecycle, a numbering
+  scheme and a line editor; only two of them post.
+- `sales_document_line_taxes` — the per-line, per-component breakdown, stored
+  rather than recomputed, so a filed return stays reproducible.
+- `payments` and `payment_allocations` — money received, and what it settled.
+  A receipt can settle several invoices, part of one, or nothing at all.
+
+The database refuses what §6 forbids, not just the domain:
+
+```sql
+ADD CONSTRAINT sales_documents_commitments_never_post
+    CHECK (journal_entry_id IS NULL OR type IN ('invoice','credit_note'));
+```
+
+An estimate cannot acquire a journal entry even by direct SQL.
+
+### Domain
+
+- `TaxCalculator` — the pure engine for §5's order of operations: line
+  discount, then document discount apportioned by net, then tax, compound
+  components stacking on the running total. Works at 12 decimal places
+  internally and reports at 4.
+- `SaveSalesDocument`, `IssueSalesDocument`, `VoidSalesDocument`,
+  `ConvertSalesDocument` — the document lifecycle. Issuing an invoice or a
+  credit note builds a draft and hands it to `PostJournalEntry`; issuing an
+  estimate or a sales order posts nothing.
+- `RecordCustomerPayment` — allocation, withholding, advances, and realised FX
+  as the balancing plug.
+- Settlement entries post in **base** currency, with the foreign amount and
+  rate in the memo. The realised gain exists only in base currency, so an
+  entry in the transaction currency would need a line worth zero dollars and
+  a non-zero number of rupees — which invariant I3 refuses, correctly.
+
+### Screens
+
+Ten pages: the document list, editor and view for all four types; customers
+list and statement; items; payments list and entry; receivables ageing; and
+tax rates under settings.
+
+- The ageing report states whether it reconciles to the receivables control
+  account, in words, at the top. An ageing report that quietly disagrees with
+  the ledger is worse than no report: somebody chases the wrong customer while
+  the real discrepancy stays hidden.
+- Overdue is a predicate, never a stored status. It changes at midnight
+  without anything happening to the document, so a column would need a nightly
+  job to stay true — and a job that can fail is worse than a derived value
+  that cannot.
+
+### Defects found and fixed by writing the tests
+
+Two in Phase 2's ledger, found by Phase 3's lifecycle tests:
+
+1. **`Account::balance()` filtered on `status = 'posted'`**, which excludes a
+   reversed original while still counting its reversal. Every balance was
+   wrong by the value of anything voided, in the opposite direction. Same bug
+   in `ChartOfAccountsController`.
+2. **`CloseFiscalYear`'s balancing line was inverted** — the comment described
+   debit-on-loss, the code credited.
+
+And in Phase 3's own code:
+
+3. **Document-discount apportionment lost its remainder.** Shares were
+   computed at working scale, so the remainder landed in the 12th decimal and
+   vanished on rounding: 100 across three lines gave 99.9999. Shares are now
+   rounded to money scale before the remainder is computed.
+4. **A bookkeeper could post revenue** by pressing Issue. `issue()` asked only
+   for `sales.send`, which the role has — so the one role whose entire
+   definition is "prepares documents, cannot post" could post. Issuing a type
+   that posts now requires `accounting.post` as well, and voiding one requires
+   `accounting.reverse`. The buttons follow the same rule, so a control that
+   would only ever be refused is absent rather than present.
+5. **The list header and its own filter used different clocks.** The overdue
+   summary read PostgreSQL's `CURRENT_DATE` while the filter beneath it asked
+   PHP, so the header could say nothing was overdue while the rows below
+   listed an overdue invoice. The date is now bound from PHP in both.
+6. **`/sales/widgets` answered 200**, announcing that Recurring Invoices were
+   arriving in Phase 4. The placeholder matched any segment under a known
+   module, so every typo and every stale link invented a roadmap entry. It now
+   has an allowlist of sections it may make a promise about.
+7. **Two test files each declared a global `const AR`.** A top-level `const` in
+   a Pest file is global to the process, so the suite passed or failed
+   depending on how the parallel runner distributed files — which changed the
+   moment a new test file existed.
+8. **The parallel worker databases had no grants for the runtime role.**
+   `my_books_test` is set up by the container's init script, but Pest creates
+   `my_books_test_test_1..12` from template1, which carries neither the grants
+   nor the default privileges. Every test that does `SET ROLE my_books_app` to
+   observe row-level security died with "permission denied" instead of testing
+   anything — and a permission error looks enough like an RLS refusal to be
+   mistaken for one. `AppServiceProvider` now probes and repairs this per
+   worker, so a fresh CI machine and a developer's machine with leftover
+   databases behave the same.
+
+### Tests added
+
+- 54 unit tests over the tax engine and the posting rules — each of §4's
+  worked examples asserted line by line, plus the places where a plausible
+  alternative would also balance but destroy information.
+- 33 accounting tests over the lifecycle: estimate → sales order → invoice →
+  payment, asserted against a real database, with `verify-ledger` clean
+  afterwards.
+- 35 HTTP tests over the screens (`tests/Feature/Sales/SalesScreensTest.php`).
+  These cover what the domain tests cannot reach: that every write is refused
+  without its own permission, that a URL naming another organisation's record
+  produces a 404 rather than that record, and that the four document types
+  share one set of routes correctly. Authorisation is asserted per **role**,
+  because roles are what people are actually given.
+
+The clock is frozen in the screen tests. Overdue, the ageing buckets and the
+receivables as-at date are all derived from today, so a test on the real date
+asserts something different every day it runs.
+
+### Phase 3 exit criteria
+
+- [x] Estimate → sales order → invoice → payment, each posting correctly
+- [x] Tax computed per §5's order, including compound components and
+      tax-inclusive pricing
+- [x] Withholding deducted by a customer, posted to WHT receivable rather
+      than written off — asserted alongside realised FX on the same receipt.
+      Filer and non-filer rates exist as jurisdiction defaults; withholding in
+      the other direction waits on purchases in Phase 4
+- [x] Credit notes, and voiding by reversal rather than deletion
+- [x] Ageing report reconciles to the receivables control account, and says so
+- [x] Gap-free numbering per document type
+- [x] Cross-tenant access refused at the HTTP layer, per role
+- [ ] Recurring invoices — deferred to Phase 4; needs a template model and the
+      scheduler, which is its own piece of work rather than a variation on an
+      invoice
+- [ ] Invoice PDF pipeline — deferred; needs the document/attachment store
+- [ ] Opening balances — inherited from Phase 2 and still open. Contacts and
+      items now exist, so nothing blocks it
+
+---
+
 ## Next
 
-1. Realised FX on settlement (§4.11) — waits on payments, in Phase 4
+1. Opening balances — now unblocked, and the oldest outstanding item
 2. Phase 1 leftover: an organisation settings screen
-3. Then Phase 3 — Sales
+3. Browser journeys through the sales screens (line editor, issue, payment)
+4. Then Phase 4 — Purchases, plus recurring invoices

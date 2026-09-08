@@ -6,12 +6,14 @@ namespace App\Domain\Tax\Models;
 
 use App\Domain\Accounting\Models\Account;
 use App\Domain\Organizations\Concerns\BelongsToOrganization;
+use App\Domain\Sales\Models\SalesDocumentLineTax;
 use App\Domain\Tax\Data\TaxComponentRate;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -87,6 +89,28 @@ final class TaxComponent extends Model
     public function inputAccount(): BelongsTo
     {
         return $this->belongsTo(Account::class, 'input_account_id');
+    }
+
+    /**
+     * The document lines this component has priced.
+     *
+     * Its existence is what stops a component version being deleted: the tax
+     * return for a filed period reads through these rows, and removing the
+     * component would make that period unreproducible.
+     *
+     * @return HasMany<SalesDocumentLineTax, $this>
+     */
+    public function lineTaxes(): HasMany
+    {
+        return $this->hasMany(SalesDocumentLineTax::class, 'tax_component_id');
+    }
+
+    /**
+     * The rate as a BigDecimal.
+     */
+    public function rateValue(): BigDecimal
+    {
+        return BigDecimal::of($this->rate);
     }
 
     /**
