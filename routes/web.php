@@ -10,6 +10,8 @@ use App\Http\Controllers\Accounting\JournalController;
 use App\Http\Controllers\Accounting\TrialBalanceController;
 use App\Http\Controllers\AppearanceController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Expenses\ExpenseController;
+use App\Http\Controllers\Expenses\ReceiptController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\ModulePlaceholderController;
@@ -26,6 +28,7 @@ use App\Http\Controllers\Sales\ReceivablesReportController;
 use App\Http\Controllers\Sales\SalesDocumentController;
 use App\Http\Controllers\Settings\AppearancePreferencesController;
 use App\Http\Controllers\Settings\MemberController;
+use App\Http\Controllers\Settings\MileageRateController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
 use App\Http\Controllers\Settings\TaxController;
@@ -323,6 +326,51 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
             ->where('type', 'orders|bills|vendor-credits');
     });
 
+    /*
+     * Expenses.
+     *
+     * Flatter than sales and purchases, because there is one document type
+     * rather than three or four. The workflow verbs are the routes that
+     * matter here: submit, approve, reject — which is where an expense
+     * differs from everything else in the product.
+     */
+    Route::prefix('expenses')->name('expenses.')->group(function (): void {
+        Route::get('/', [ExpenseController::class, 'index'])->name('index');
+        Route::get('/new', [ExpenseController::class, 'edit'])->name('create');
+        Route::post('/', [ExpenseController::class, 'store'])->name('store');
+
+        // Before /{number}, or the segment would swallow it.
+        Route::post('/rebill', [ExpenseController::class, 'rebill'])->name('rebill');
+
+        Route::get('/{number}', [ExpenseController::class, 'show'])->name('show');
+        Route::get('/{number}/edit', [ExpenseController::class, 'edit'])->name('edit');
+        Route::patch('/{number}', [ExpenseController::class, 'update'])->name('update');
+        Route::delete('/{number}', [ExpenseController::class, 'destroy'])->name('destroy');
+
+        Route::post('/{number}/submit', [ExpenseController::class, 'submit'])->name('submit');
+        Route::post('/{number}/approve', [ExpenseController::class, 'approve'])->name('approve');
+        Route::post('/{number}/reject', [ExpenseController::class, 'reject'])->name('reject');
+        Route::post('/{number}/void', [ExpenseController::class, 'void'])->name('void');
+
+        /*
+         * Receipts stream through the application rather than from storage.
+         * A presigned URL is a financial record that leaks with no audit
+         * trail and no permission check.
+         */
+        Route::post('/{number}/receipts', [ReceiptController::class, 'store'])
+            ->name('receipts.store');
+        Route::get('/{number}/receipts/{attachment}', [ReceiptController::class, 'show'])
+            ->name('receipts.show');
+        Route::delete('/{number}/receipts/{attachment}', [ReceiptController::class, 'destroy'])
+            ->name('receipts.destroy');
+    });
+
+    // Mileage rates. Configuration, and dated like a tax rate.
+    Route::get('/settings/mileage', [MileageRateController::class, 'index'])
+        ->name('settings.mileage');
+    Route::post('/settings/mileage', [MileageRateController::class, 'store'])
+        ->name('settings.mileage.store');
+
     // Tax rates. Under settings because they are configuration, not a
     // day-to-day screen — but the sales module cannot work without them.
     Route::get('/settings/taxes', [TaxController::class, 'index'])->name('settings.taxes');
@@ -344,7 +392,7 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
      * Each module replaces its entry here as it lands.
      */
     Route::get('/{module}/{submodule?}', ModulePlaceholderController::class)
-        ->where('module', 'sales|expenses|banking|accounting|inventory|reports|contacts|documents|settings|organizations')
+        ->where('module', 'sales|banking|accounting|inventory|reports|contacts|documents|settings|organizations')
         ->where('submodule', '[a-z0-9\-]+')
         ->name('module.placeholder');
 });

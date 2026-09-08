@@ -100,7 +100,7 @@ withholding is recorded as a liability and reconciles.
 
 ---
 
-## Phase 5 — Expenses
+## Phase 5 — Expenses · *complete — 2026-09-09*
 
 Expense entry, categories, receipt upload, mileage, approval workflow,
 billable expenses.

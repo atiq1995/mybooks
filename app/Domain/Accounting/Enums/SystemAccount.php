@@ -27,6 +27,15 @@ enum SystemAccount: string
     case WithholdingTaxPayable = 'wht_payable';
     case CustomerAdvances = 'customer_advances';
     case VendorAdvances = 'vendor_advances';
+    /*
+     * What we owe our own people for money they spent on the business.
+     *
+     * Its own role rather than accounts payable: an employee is not a vendor,
+     * and a payables ageing report full of staff expense claims would make
+     * the vendor balances unreadable — while "what do we owe our staff" is a
+     * figure somebody asks for on its own.
+     */
+    case EmployeeReimbursements = 'employee_reimbursements';
     case RetainedEarnings = 'retained_earnings';
     case CurrentYearEarnings = 'current_year_earnings';
     case FxGainLoss = 'fx_gain_loss';
@@ -56,6 +65,7 @@ enum SystemAccount: string
             self::CostOfGoodsSold => 'Cost of Goods Sold',
             self::SalesReturns => 'Sales Returns',
             self::TradeDiscounts => 'Trade Discounts',
+            self::EmployeeReimbursements => 'Employee Reimbursements',
         };
     }
 
@@ -71,6 +81,7 @@ enum SystemAccount: string
             self::AccountsPayable,
             self::GstOutput,
             self::WithholdingTaxPayable,
+            self::EmployeeReimbursements,
             self::CustomerAdvances => AccountType::Liability,
 
             self::RetainedEarnings,

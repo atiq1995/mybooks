@@ -2,16 +2,17 @@
 
 Where the work stands. Read after `CLAUDE.md`, before doing anything.
 
-**Updated:** 2026-09-08
-**Phase:** 4 — Purchases — **complete; every exit criterion met**
+**Updated:** 2026-09-09
+**Phase:** 5 — Expenses — **complete; every exit criterion met**
 **Phase 0:** complete, verified, pushed (`085d102`).
 **Phase 1:** complete apart from two items listed under Gaps.
 **Phase 2:** complete; every exit criterion met bar opening balances, which
 was deferred because it needs contacts and items.
 **Phase 3:** complete apart from three items listed at the end of its section.
+**Phase 4:** complete; every exit criterion met.
 
-**Gates, as of this update:** 532 tests / 2,895 assertions green — 96 Unit,
-264 Feature, 165 Accounting, 7 Browser against a real Chromium; the accounting
+**Gates, as of this update:** 620 tests / 3,293 assertions green — 106 Unit,
+304 Feature, 203 Accounting, 7 Browser against a real Chromium; the accounting
 suite also re-run serially, as it asserts ledger-wide state. PHPStan level max
 clean; Pint clean; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`) clean;
 production asset build succeeds. Every figure in this document was observed,
@@ -685,9 +686,130 @@ distributed files. The same trap as the `const AR` collision in Phase 3.
 
 ---
 
+## Phase 5 — Expenses
+
+### Schema
+
+- `attachments` — generic from the start rather than an `expense_receipts`
+  table that would be copied for bills, then journals, then contacts. The row
+  is the index; the bytes live in object storage. It carries the original
+  name, size, type and a **SHA-256 checksum** — the checksum is what makes
+  "we already have this receipt" answerable, which matters because a
+  duplicate receipt is usually a duplicate claim.
+- `expenses`, `expense_lines`, `expense_line_taxes` — its own table rather
+  than a fourth purchase document type, because an expense is usually paid at
+  the moment it is recorded (no payable to age), and where it is not the money
+  is owed to a PERSON rather than a vendor.
+- `mileage_rates` — dated, like a tax rate. The rate is copied onto the claim,
+  so the table is only where a default comes from.
+- A new system account: **2150 Employee Reimbursements**, with a forward-only
+  data migration giving it to every existing organisation. Its own role rather
+  than accounts payable — an employee is not a vendor, and a payables ageing
+  full of staff claims would make the vendor balances unreadable.
+
+Three constraints carry rules the code must not be able to lose:
+
+```sql
+-- A company-paid expense names the account it came out of; a reimbursable
+-- one must not, because it did not come out of one.
+CHECK ((payment_mode = 'company') = (paid_through_account_id IS NOT NULL)),
+-- Approval is what posts, so the two facts travel together.
+CHECK ((approved_at IS NULL) = (journal_entry_id IS NULL)),
+-- A rejection has to say why: without a reason it is a dead end for
+-- whoever submitted it.
+CHECK (status <> 'rejected' OR btrim(coalesce(rejection_reason, '')) <> '')
+```
+
+### Domain
+
+- `ExpensePosting` (§4.8) — pure. One rule with a switched credit rather than
+  two rules: everything above the line is identical, and the credit varies by
+  the single fact of whose money was spent.
+- `SaveExpense`, `SubmitExpense`, `ApproveExpense`, `RejectExpense`,
+  `VoidExpense`, `RebillExpenses`, `StoreAttachment`.
+- **The approver cannot be the submitter.** Enforced in the domain, not only
+  the controller, because an import or an API call has to hit it too. Without
+  it the workflow is two clicks by the same person — a formality that makes
+  the books look reviewed when they are not. Self-approval is permitted only
+  for a single-member organisation, which has nobody to ask, and the audit row
+  records that it happened either way.
+- **Mileage reuses quantity × price.** A distance at a rate per kilometre is
+  the same multiplication as a quantity at a price, so the tax engine needs no
+  special case. The rate is resolved as at the expense's own date and copied
+  onto the line: a rate raised in October must not restate September.
+- **Non-claimable input tax is capitalised** — §4.6 again, and it bites
+  hardest here, because expenses are where blocked input tax actually turns
+  up: entertainment, staff welfare, a car.
+- **Receipts stream through the application**, never from a storage URL. A
+  presigned URL is a financial record that leaks with no audit trail, no
+  permission check and no expiry anybody can rely on. The type is read from
+  the file's contents rather than the browser's claim, against an allowlist.
+
+### Screens
+
+Four pages: the expense list, the form, the detail view with its receipts, and
+mileage rates under settings.
+
+- The list leads with the two questions people arrive with — what needs
+  approving, what needs billing on — each a figure that is also a filter. The
+  third is **what we owe our own people**, a number a payroll run needs and
+  nothing else in the product shows.
+- A missing receipt is called out per row, because the person who can fix it
+  is the person reading the list.
+- The approve button is **hidden** from whoever submitted the claim, not
+  merely refused. A control that appears and then always fails teaches people
+  the software is broken rather than that the rule exists.
+- Categories are the chart of accounts, and the navigation says so. An expense
+  line charges an expense or asset account directly, which is what a category
+  is; a second table naming the same thing would be a second source of truth
+  about where a cost belongs.
+
+### A defect found by writing the tests
+
+**A model in a string-cast attribute hung the request instead of failing it.**
+In the mileage-rate controller the validated string and the `MileageRate`
+model were both called `$rate`; the model went into the `rate` attribute,
+which is cast to a string, so casting called `__toString()`, which serialised
+the model, which cast the attribute again — 27,000 stack frames and a
+900-second test run rather than an error.
+
+Two things let it through, and both are fixed. The variable names now differ
+(`$rateValue`, `$outgoing`, `$mileageRate`), and the test asserts the stored
+FIGURE rather than only the row count — the row existed; its rate was a stack
+overflow.
+
+### Tests added
+
+- 10 unit tests over §4.8, including both halves of the credit and both halves
+  of the claimable/blocked split.
+- 38 accounting tests over the lifecycle: receipt → submit → approve against a
+  real database, plus mileage resolution by date, self-approval, rejection and
+  re-submission, voiding, and rebilling — with `verify-ledger` clean after a
+  set of books containing both payment modes and both tax treatments.
+- 40 HTTP tests over the screens
+  (`tests/Feature/Expenses/ExpenseScreensTest.php`), asserted per role. The
+  fixture deliberately has **two** members: with one, the controller treats the
+  organisation as a sole trader and permits self-approval, so a single-member
+  fixture would have made every separation-of-duties assertion vacuous.
+
+### Phase 5 exit criteria
+
+- [x] A receipt-attached expense posts with the correct tax treatment and
+      routes through approval — asserted end to end, against the ledger
+- [x] Non-claimable input tax capitalised, not made a receivable — per line,
+      and asserted against the alternative
+- [x] Approval workflow with a real separation of duties: the claimant cannot
+      approve their own expense, whatever permissions they hold
+- [x] Receipt capture, served through the application rather than from storage
+- [x] Mileage at a dated rate, copied onto the claim
+- [x] Billable expenses onto a draft invoice at cost, one customer at a time
+- [x] Reimbursable expenses as a liability to a person, separate from payables
+
+---
+
 ## Next
 
 1. Opening balances — unblocked since Phase 3, and the oldest outstanding item
 2. Phase 1 leftover: an organisation settings screen
-3. Browser journeys through the sales and purchase screens
-4. Then Phase 5 — Expenses, plus recurring invoices
+3. Browser journeys through the sales, purchase and expense screens
+4. Then Phase 6 — Banking, plus recurring invoices

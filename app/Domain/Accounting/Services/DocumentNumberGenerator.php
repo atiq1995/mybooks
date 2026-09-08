@@ -145,6 +145,8 @@ final readonly class DocumentNumberGenerator
             'vendor_credit' => 'VCN-',
             'payment_made' => 'PAY-',
 
+            'expense' => 'EXP-',
+
             'journal' => 'JE-',
 
             default => mb_strtoupper(mb_substr($documentType, 0, 3)).'-',

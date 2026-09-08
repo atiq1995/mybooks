@@ -76,6 +76,9 @@ final class ChartOfAccountsTemplate
             // -- Liabilities -------------------------------------------
             self::header('2000', 'Liabilities', AccountType::Liability),
             self::account('2100', 'Accounts Payable', AccountType::Liability, 'payable', role: SystemAccount::AccountsPayable),
+            // Money our own people are owed for what they spent on the
+            // business. Separate from payables: an employee is not a vendor.
+            self::account('2150', 'Employee Reimbursements', AccountType::Liability, 'payable', role: SystemAccount::EmployeeReimbursements),
             self::account('2200', 'Customer Advances', AccountType::Liability, 'payable', role: SystemAccount::CustomerAdvances),
             self::account('2400', 'Accrued Liabilities', AccountType::Liability, 'current_liability'),
             self::account('2700', 'Long-term Loans', AccountType::Liability, 'long_term_liability'),

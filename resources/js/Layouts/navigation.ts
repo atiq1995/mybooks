@@ -171,16 +171,45 @@ export const NAVIGATION: NavSection[] = [
         icon: Wallet,
         match: '/expenses',
         phase: 5,
+        route: 'expenses.index',
         items: [
-            { label: 'All Expenses', match: '/expenses', phase: 5 },
+            { label: 'All Expenses', route: 'expenses.index', match: '/expenses', phase: 5 },
+            /*
+             * Approvals and to-rebill are saved views of the same list, not
+             * screens of their own — the questions people arrive with, as
+             * links.
+             */
             {
                 label: 'Approvals',
-                match: '/expenses/approvals',
+                route: 'expenses.index',
+                match: '/expenses?view=approvals',
                 phase: 5,
                 badge: 'pending_approvals',
             },
-            { label: 'Categories', match: '/expenses/categories', phase: 5 },
-            { label: 'Mileage', match: '/expenses/mileage', phase: 5 },
+            {
+                label: 'To rebill',
+                route: 'expenses.index',
+                match: '/expenses?view=to_bill',
+                phase: 5,
+            },
+            /*
+             * Categories are the chart of accounts. An expense line charges
+             * an expense or asset account directly, which is what a category
+             * IS — a second table naming the same thing would be a second
+             * source of truth about where a cost belongs.
+             */
+            {
+                label: 'Categories',
+                route: 'accounting.accounts',
+                match: '/accounting/accounts',
+                phase: 5,
+            },
+            {
+                label: 'Mileage rates',
+                route: 'settings.mileage',
+                match: '/settings/mileage',
+                phase: 5,
+            },
         ],
     },
     {
@@ -297,7 +326,7 @@ export const NAVIGATION: NavSection[] = [
  *
  * Raise this as each phase lands.
  */
-export const CURRENT_PHASE = 4;
+export const CURRENT_PHASE = 5;
 
 export function isAvailable(phase: number): boolean {
     return phase <= CURRENT_PHASE;

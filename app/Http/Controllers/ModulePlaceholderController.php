@@ -52,12 +52,19 @@ final class ModulePlaceholderController extends Controller
          * which makes /purchases/anything-else a 404 rather than a page
          * announcing a feature that already exists.
          */
-        'expenses' => [
-            'phase' => 5,
-            'title' => 'Expenses',
-            'summary' => 'Expense entry with receipt capture, categories, mileage and an approval workflow.',
-            'sections' => ['approvals', 'categories', 'mileage'],
-        ],
+        /*
+         * Expenses has landed: entry, receipts, mileage, approval and
+         * billable expenses all have real screens, and approvals and mileage
+         * are routes of their own rather than sections still to come. There
+         * is nothing left to promise, so the module has no entry — which
+         * makes /expenses/anything-else a 404 rather than a page announcing
+         * something that already exists.
+         *
+         * Categories are the chart of accounts. An expense line charges an
+         * expense or asset account directly, which is what a category IS —
+         * a second table naming the same thing would be a second source of
+         * truth about where a cost belongs.
+         */
         'banking' => [
             'phase' => 6,
             'title' => 'Banking',
