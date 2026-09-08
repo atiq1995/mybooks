@@ -7,7 +7,7 @@ Where the work stands. Read after `CLAUDE.md`, before doing anything.
 **Phase 0:** complete, verified, pushed (`085d102`).
 **Phase 1:** complete apart from two items listed under Gaps.
 
-**Gates, as of this update:** 276 tests / 1,673 assertions green; PHPStan
+**Gates, as of this update:** 292 tests / 1,731 assertions green; PHPStan
 level max clean; Pint clean; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`)
 clean; production asset build succeeds. Every figure in this document was
 observed, not assumed.
@@ -393,15 +393,15 @@ organisation explicitly.
 - [x] Gap-free numbering under rollback
 - [ ] Opening balances (deferred to Phase 3 — needs contacts and items)
 - [ ] Multi-currency revaluation and the FX gain/loss run
-- [ ] Year-end close (`accounting.close_year` exists; the Action does not)
+- [x] Year-end close — profit or loss to retained earnings, periods closed
+      (not locked), reversible like any other entry
 - [ ] Committed browser suite for the accounting screens
 
 ---
 
 ## Next
 
-1. Year-end close: post net income to retained earnings, lock the year
-2. Multi-currency: exchange-rate entry UI, revaluation, FX gain/loss posting
+1. Multi-currency: exchange-rate entry UI, revaluation, FX gain/loss posting
 3. Browser (Pest 4) suite over the five accounting screens — the visual
    review gate in `CLAUDE.md` has been met by hand, not by a committed test
 4. Phase 1 leftovers: organisation settings screen; committed browser E2E

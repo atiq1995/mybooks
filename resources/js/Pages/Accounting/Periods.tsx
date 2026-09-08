@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { SyntheticEvent } from 'react';
-import { Head, router, useForm } from '@inertiajs/react';
-import { CalendarPlus, Lock, LockOpen, ShieldCheck } from 'lucide-react';
+import { Head, Link, router, useForm } from '@inertiajs/react';
+import { CalendarCheck, CalendarPlus, Lock, LockOpen, ShieldCheck } from 'lucide-react';
 import { AppLayout } from '@/Layouts/AppLayout';
 import { Badge } from '@ui/Badge';
 import { Button } from '@ui/Button';
@@ -29,6 +29,8 @@ interface Year {
     ends_on: string;
     status: string;
     status_label: string;
+    closing_entry_no: string | null;
+    can_close: boolean;
     periods: Period[];
 }
 
@@ -36,7 +38,7 @@ interface PeriodsProps {
     years: Year[];
     baseCurrency: string;
     fiscalYearStartMonth: number;
-    can: { manage: boolean; post_to_closed: boolean };
+    can: { manage: boolean; post_to_closed: boolean; close_year: boolean };
 }
 
 const TONES = {
@@ -84,6 +86,23 @@ export default function Periods({ years, fiscalYearStartMonth, can }: PeriodsPro
         }
 
         router.patch(`/accounting/periods/${period.id}`, { status }, { preserveScroll: true });
+    };
+
+    const closeYear = (year: Year) => {
+        if (
+            !window.confirm(
+                `Close financial year ${year.label}?\n\n` +
+                    'Every income and expense account is emptied into retained earnings, and ' +
+                    'all twelve periods are closed. Balance sheet accounts carry forward.\n\n' +
+                    'This is reversible — the closing entry can be reversed like any other, ' +
+                    'and a period can be reopened — but it is what you do once the year is ' +
+                    'final.',
+            )
+        ) {
+            return;
+        }
+
+        router.post(`/accounting/fiscal-years/${year.id}/close`, {}, { preserveScroll: true });
     };
 
     return (
@@ -165,9 +184,36 @@ export default function Periods({ years, fiscalYearStartMonth, can }: PeriodsPro
                                     </p>
                                 </div>
 
-                                <Badge tone={TONES[year.status as keyof typeof TONES] ?? 'neutral'}>
-                                    {year.status_label}
-                                </Badge>
+                                <div className="flex items-center gap-2">
+                                    {year.closing_entry_no !== null && (
+                                        <span className="text-content-muted text-xs">
+                                            closed by{' '}
+                                            <Link
+                                                href={`/accounting/journals/${year.closing_entry_no}`}
+                                                className="text-brand-text tabular-nums hover:underline"
+                                            >
+                                                {year.closing_entry_no}
+                                            </Link>
+                                        </span>
+                                    )}
+
+                                    <Badge
+                                        tone={TONES[year.status as keyof typeof TONES] ?? 'neutral'}
+                                    >
+                                        {year.status_label}
+                                    </Badge>
+
+                                    {can.close_year && year.can_close && (
+                                        <Button
+                                            variant="secondary"
+                                            size="sm"
+                                            icon={<CalendarCheck aria-hidden="true" />}
+                                            onClick={() => closeYear(year)}
+                                        >
+                                            Close the year
+                                        </Button>
+                                    )}
+                                </div>
                             </header>
 
                             <div className="table-scroll">

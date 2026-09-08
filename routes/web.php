@@ -158,6 +158,10 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
             ->name('periods.status');
         Route::post('/fiscal-years', [FiscalPeriodController::class, 'storeYear'])
             ->name('fiscal-years.store');
+        // The close needs its own permission: it summarises twelve months into
+        // one equity figure, and is the last act before filing.
+        Route::post('/fiscal-years/{year}/close', [FiscalPeriodController::class, 'closeYear'])
+            ->name('fiscal-years.close');
     });
     /*
      * Everything the navigation advertises but that has not been built yet.

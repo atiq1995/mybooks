@@ -8,6 +8,7 @@ use App\Domain\Accounting\Enums\PeriodStatus;
 use App\Domain\Organizations\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
@@ -43,6 +44,16 @@ final class FiscalYear extends Model
             'status' => PeriodStatus::class,
             'closed_at' => 'datetime',
         ];
+    }
+
+    /**
+     * The year-end entry that moved net income to retained earnings.
+     *
+     * @return BelongsTo<JournalEntry, $this>
+     */
+    public function closingEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'closing_entry_id');
     }
 
     /**

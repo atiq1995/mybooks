@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Accounting;
 
 use App\Domain\Access\Enums\Permission;
+use App\Domain\Accounting\Actions\CloseFiscalYear;
 use App\Domain\Accounting\Actions\CreateFiscalYear;
 use App\Domain\Accounting\Enums\PeriodStatus;
+use App\Domain\Accounting\Exceptions\PostingRefused;
 use App\Domain\Accounting\Models\FiscalPeriod;
 use App\Domain\Accounting\Models\FiscalYear;
 use App\Domain\Audit\AuditRecorder;
@@ -36,6 +38,7 @@ final class FiscalPeriodController extends Controller
         private readonly TenantContext $tenant,
         private readonly AuditRecorder $audit,
         private readonly CreateFiscalYear $createFiscalYear,
+        private readonly CloseFiscalYear $closeFiscalYear,
     ) {}
 
     public function index(Request $request): Response
@@ -59,6 +62,10 @@ final class FiscalPeriodController extends Controller
                 'ends_on' => $year->ends_on->toDateString(),
                 'status' => $year->status->value,
                 'status_label' => $year->status->label(),
+                'closing_entry_no' => $year->closingEntry?->entry_no,
+                // A year with nothing posted in it can still be closed; one
+                // already closed cannot be closed twice.
+                'can_close' => ! $year->isClosed(),
                 'periods' => $year->periods->map(fn (FiscalPeriod $period): array => [
                     'id' => $period->id,
                     'sequence' => $period->sequence,
@@ -77,6 +84,7 @@ final class FiscalPeriodController extends Controller
             'fiscalYearStartMonth' => $organization->fiscal_year_start_month,
             'can' => [
                 'manage' => $request->user()?->can(Permission::AccountingManagePeriods->value) ?? false,
+                'close_year' => $request->user()?->can(Permission::AccountingCloseYear->value) ?? false,
                 'post_to_closed' => $request->user()
                     ?->can(Permission::AccountingPostToClosedPeriod->value) ?? false,
             ],
@@ -183,6 +191,38 @@ final class FiscalPeriodController extends Controller
         $year = $this->createFiscalYear->handle($organization, $startingYear, $request->user());
 
         return back()->with('success', "Financial year {$year->label} opened.");
+    }
+
+    /**
+     * Run the year-end close.
+     *
+     * Its own permission, separate from managing periods: closing a year
+     * summarises twelve months into one equity figure, and it is the last
+     * thing anybody does before filing.
+     */
+    public function closeYear(Request $request, FiscalYear $year): RedirectResponse
+    {
+        $this->authorize(Permission::AccountingCloseYear->value);
+
+        abort_unless($year->organization_id === $this->tenant->organization()->id, 404);
+
+        try {
+            $result = $this->closeFiscalYear->handle($year, $request->user());
+        } catch (PostingRefused $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
+
+        $message = $result['entry'] === null
+            ? "Financial year {$year->label} closed. Nothing had been posted in it."
+            : sprintf(
+                'Financial year %s closed. %s moved %s from %d account(s) to retained earnings.',
+                $year->label,
+                $result['entry']->entry_no,
+                $result['net_result'],
+                $result['accounts_closed'],
+            );
+
+        return back()->with('success', $message);
     }
 
     /**

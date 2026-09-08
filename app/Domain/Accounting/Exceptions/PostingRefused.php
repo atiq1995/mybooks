@@ -82,6 +82,29 @@ final class PostingRefused extends RuntimeException
         return new self("Entry {$entryNo} has already been reversed.");
     }
 
+    public static function yearAlreadyClosed(string $label): self
+    {
+        return new self(
+            "Financial year {$label} is already closed. Reverse its closing entry if the ".
+            'close was premature, then close it again.'
+        );
+    }
+
+    /**
+     * A control account the machinery needs is missing.
+     *
+     * Only reachable if somebody deleted it directly in SQL — the application
+     * refuses to archive a system account — so the message is written for
+     * whoever has to put it back.
+     */
+    public static function missingSystemAccount(string $role): self
+    {
+        return new self(
+            "This organisation has no account marked '{$role}'. Re-run the chart of ".
+            'accounts setup, which restores anything missing without touching what exists.'
+        );
+    }
+
     public static function cannotReverseAReversal(string $entryNo): self
     {
         return new self(

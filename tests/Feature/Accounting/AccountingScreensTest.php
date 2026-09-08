@@ -769,3 +769,65 @@ describe('authorisation, by role', function (): void {
         $this->actingAs($stranger)->get('/accounting/trial-balance')->assertForbidden();
     });
 });
+
+describe('the year-end close', function (): void {
+    it('closes a year and reports what it moved', function (): void {
+        ($this->postEntry)();
+
+        $this->post("/accounting/fiscal-years/{$this->year->id}/close")
+            ->assertSessionHas('success');
+
+        $closing = JournalEntry::query()->where('source_type', 'closing')->sole();
+
+        expect($closing->entry_date->toDateString())->toBe($this->year->ends_on->toDateString())
+            ->and($this->year->fresh()?->closing_entry_id)->toBe($closing->id);
+
+        $this->get('/accounting/periods')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('years.0.status', 'closed')
+                ->where('years.0.closing_entry_no', $closing->entry_no)
+                // A closed year cannot be closed again.
+                ->where('years.0.can_close', false),
+            );
+    });
+
+    it('refuses to close a year twice', function (): void {
+        ($this->postEntry)();
+
+        $this->post("/accounting/fiscal-years/{$this->year->id}/close");
+
+        $this->post("/accounting/fiscal-years/{$this->year->id}/close")
+            ->assertSessionHas('error');
+
+        expect(JournalEntry::query()->where('source_type', 'closing')->count())->toBe(1);
+    });
+
+    it('needs its own permission, which an accountant has and a viewer does not', function (): void {
+        ($this->postEntry)();
+
+        actingAsMember($this->organization, Role::Viewer->value);
+        $this->post("/accounting/fiscal-years/{$this->year->id}/close")->assertForbidden();
+
+        actingAsMember($this->organization, Role::Bookkeeper->value);
+        $this->post("/accounting/fiscal-years/{$this->year->id}/close")->assertForbidden();
+
+        expect(JournalEntry::query()->where('source_type', 'closing')->count())->toBe(0);
+
+        actingAsMember($this->organization, Role::Accountant->value);
+        $this->post("/accounting/fiscal-years/{$this->year->id}/close")
+            ->assertSessionHas('success');
+    });
+
+    it('404s on a year belonging to another organisation', function (): void {
+        $other = Organization::factory()->create();
+
+        $theirYearId = app(TenantContext::class)->runAs(
+            $other,
+            fn (): string => withLedger($other)->id,
+        );
+
+        actingAsMember($this->organization, Role::Owner->value);
+
+        $this->post("/accounting/fiscal-years/{$theirYearId}/close")->assertNotFound();
+    });
+});
