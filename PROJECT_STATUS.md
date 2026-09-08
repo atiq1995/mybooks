@@ -7,7 +7,7 @@ Where the work stands. Read after `CLAUDE.md`, before doing anything.
 **Phase 0:** complete, verified, pushed (`085d102`).
 **Phase 1:** complete apart from two items listed under Gaps.
 
-**Gates, as of this update:** 292 tests / 1,731 assertions green; PHPStan
+**Gates, as of this update:** 315 tests / 1,820 assertions green; PHPStan
 level max clean; Pint clean; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`)
 clean; production asset build succeeds. Every figure in this document was
 observed, not assumed.
@@ -332,7 +332,8 @@ Chart of Accounts (tree, live balances, create/edit/archive/restore),
 Manual Journals (list, filters, create with running totals, detail, reverse),
 General Ledger (opening balance, movements, running balance, closing),
 Trial Balance (net position per account, verdict stated outright),
-Fiscal Periods (open/close/reopen/lock, open a financial year).
+Fiscal Periods (open/close/reopen/lock, open a year, close a year),
+Currencies (rate store plus a previewed period-end revaluation).
 
 `/accounting` and `/settings` now redirect to their first real screen instead
 of a placeholder. Only `/accounting/opening-balances` is still a placeholder —
@@ -364,7 +365,7 @@ investigating a restore, a nightly job on the owner connection — so
 organisation the loop happened to be on. Every check now names the
 organisation explicitly.
 
-### Tests added (93 domain + 41 HTTP + 8 under the runtime DB role)
+### Tests added (124 domain + 49 HTTP + 8 under the runtime DB role)
 
 - `tests/Unit/Accounting/JournalDraftTest` — I1–I3 on pure drafts
 - `tests/Accounting/PostJournalEntryTest` — every refusal asserted twice, once
@@ -392,7 +393,8 @@ organisation explicitly.
 - [x] `verify-ledger` catches a deliberately corrupted balance
 - [x] Gap-free numbering under rollback
 - [ ] Opening balances (deferred to Phase 3 — needs contacts and items)
-- [ ] Multi-currency revaluation and the FX gain/loss run
+- [x] Multi-currency: rate store, "latest on or before" lookup, period-end
+      revaluation with next-day reversal, FX gain/loss posting
 - [x] Year-end close — profit or loss to retained earnings, periods closed
       (not locked), reversible like any other entry
 - [ ] Committed browser suite for the accounting screens
@@ -401,7 +403,7 @@ organisation explicitly.
 
 ## Next
 
-1. Multi-currency: exchange-rate entry UI, revaluation, FX gain/loss posting
+1. Realised FX on settlement (§4.11) — waits on payments, in Phase 4
 3. Browser (Pest 4) suite over the five accounting screens — the visual
    review gate in `CLAUDE.md` has been met by hand, not by a committed test
 4. Phase 1 leftovers: organisation settings screen; committed browser E2E

@@ -831,3 +831,82 @@ describe('the year-end close', function (): void {
         $this->post("/accounting/fiscal-years/{$theirYearId}/close")->assertNotFound();
     });
 });
+
+describe('currencies', function (): void {
+    it('shows recorded rates and offers only the currencies actually held', function (): void {
+        $usdBank = new Account;
+
+        $usdBank->forceFill([
+            'id' => (string) Str::uuid7(),
+            'organization_id' => $this->organization->getKey(),
+            'code' => '1015',
+            'name' => 'Bank — USD',
+            'type' => 'asset',
+            'normal_balance' => 'debit',
+            'currency' => 'USD',
+            'is_active' => true,
+            'is_header' => false,
+        ])->save();
+
+        $this->post('/accounting/currencies/rates', [
+            'from_currency' => 'usd',
+            'to_currency' => 'pkr',
+            'rate' => '278.50',
+            'effective_on' => $this->date->toDateString(),
+        ])->assertSessionHas('success');
+
+        $this->get('/accounting/currencies')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Accounting/Currencies')
+                ->where('baseCurrency', 'PKR')
+                // Lower case in, canonical out.
+                ->where('rates.0.from_currency', 'USD')
+                ->where('rates.0.rate', '278.5000000000')
+                ->where('foreignCurrencies', ['USD'])
+                ->where('can.manage_rates', true),
+            );
+    });
+
+    it('refuses a rate from a currency to itself', function (): void {
+        $this->post('/accounting/currencies/rates', [
+            'from_currency' => 'PKR',
+            'to_currency' => 'PKR',
+            'rate' => '1',
+            'effective_on' => $this->date->toDateString(),
+        ])->assertSessionHasErrors('to_currency');
+    });
+
+    it('reports nothing to revalue when everything is held in the base currency', function (): void {
+        ($this->postEntry)();
+
+        $this->get('/accounting/currencies')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('revaluation.adjustments', [])
+                ->where('revaluation.error', null),
+            );
+
+        $this->post('/accounting/currencies/revalue', ['as_of' => $this->date->toDateString()])
+            ->assertSessionHas('success');
+
+        expect(JournalEntry::query()->where('source_type', 'revaluation')->count())->toBe(0);
+    });
+
+    it('needs the accounting settings permission to record a rate', function (): void {
+        actingAsMember($this->organization, Role::Viewer->value);
+
+        $this->post('/accounting/currencies/rates', [
+            'from_currency' => 'USD',
+            'to_currency' => 'PKR',
+            'rate' => '278.50',
+            'effective_on' => $this->date->toDateString(),
+        ])->assertForbidden();
+
+        actingAsMember($this->organization, Role::Bookkeeper->value);
+
+        // A bookkeeper cannot post, and must not be able to move the balance
+        // sheet by editing a rate either.
+        $this->post('/accounting/currencies/revalue', ['as_of' => $this->date->toDateString()])
+            ->assertForbidden();
+    });
+});

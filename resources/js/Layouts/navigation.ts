@@ -155,6 +155,12 @@ export const NAVIGATION: NavSection[] = [
                 match: '/accounting/periods',
                 phase: 2,
             },
+            {
+                label: 'Currencies',
+                route: 'accounting.currencies',
+                match: '/accounting/currencies',
+                phase: 2,
+            },
             // Still a placeholder: opening balances need the contact and item
             // records that Phase 3 brings, since most of them are unpaid
             // invoices and bills rather than plain journal lines.

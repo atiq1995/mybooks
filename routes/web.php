@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Accounting\ChartOfAccountsController;
+use App\Http\Controllers\Accounting\CurrencyController;
 use App\Http\Controllers\Accounting\FiscalPeriodController;
 use App\Http\Controllers\Accounting\GeneralLedgerController;
 use App\Http\Controllers\Accounting\JournalController;
@@ -152,6 +153,12 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
 
         Route::get('/general-ledger', [GeneralLedgerController::class, 'index'])->name('general-ledger');
         Route::get('/trial-balance', [TrialBalanceController::class, 'index'])->name('trial-balance');
+
+        Route::get('/currencies', [CurrencyController::class, 'index'])->name('currencies');
+        Route::post('/currencies/rates', [CurrencyController::class, 'storeRate'])
+            ->name('currencies.rates.store');
+        Route::post('/currencies/revalue', [CurrencyController::class, 'revalue'])
+            ->name('currencies.revalue');
 
         Route::get('/periods', [FiscalPeriodController::class, 'index'])->name('periods');
         Route::patch('/periods/{period}', [FiscalPeriodController::class, 'updateStatus'])
