@@ -275,7 +275,12 @@ export const NAVIGATION: NavSection[] = [
             // Still a placeholder: opening balances need the contact and item
             // records that Phase 3 brings, since most of them are unpaid
             // invoices and bills rather than plain journal lines.
-            { label: 'Opening Balances', match: '/accounting/opening-balances', phase: 3 },
+            {
+                label: 'Opening Balances',
+                route: 'accounting.opening-balances',
+                match: '/accounting/opening-balances',
+                phase: 3,
+            },
         ],
     },
     {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domain\Sales\Actions;
 
 use App\Domain\Access\Enums\Permission;
+use App\Domain\Accounting\Actions\EnterOpeningDocument;
 use App\Domain\Accounting\Actions\PostJournalEntry;
 use App\Domain\Accounting\Data\JournalDraft;
 use App\Domain\Accounting\Enums\SystemAccount;
@@ -54,10 +55,26 @@ final readonly class IssueSalesDocument
         private AuditRecorder $audit,
     ) {}
 
+    /**
+     * @param  Carbon|null  $postingDate  where the ENTRY lands, when that is
+     *                                    not the document's own date
+     *
+     * The override exists for one case and should be used for no other:
+     * bringing an unpaid invoice across from a previous system. Such an
+     * invoice keeps its real issue date, because that is what its ageing and
+     * its customer's statement depend on — but the entry recognising the
+     * balance belongs on the migration date, inside a period this system
+     * actually keeps. Posting last year's transactions into this year's
+     * periods is the alternative, and it would restate a year that was
+     * already filed.
+     *
+     * @see EnterOpeningDocument
+     */
     public function handle(
         SalesDocument $document,
         ?User $actor = null,
         bool $allowClosedPeriod = false,
+        ?Carbon $postingDate = null,
     ): SalesDocument {
         if ($document->status->isIssued()) {
             throw SalesDocumentRefused::alreadyIssued($document->type->label(), $document->number);
@@ -76,14 +93,23 @@ final readonly class IssueSalesDocument
             );
         }
 
-        return DB::transaction(function () use ($document, $actor, $allowClosedPeriod): SalesDocument {
+        // Defaulted here rather than in the draft builders, so both of them
+        // read from one decision.
+        $postingDate ??= Carbon::parse($document->issue_date->toDateString());
+
+        return DB::transaction(function () use (
+            $document,
+            $actor,
+            $allowClosedPeriod,
+            $postingDate,
+        ): SalesDocument {
             $entryId = null;
 
             if ($document->type->posts()) {
                 $entry = $this->postJournalEntry->handle(
                     draft: $document->type === SalesDocumentType::CreditNote
-                        ? $this->creditNoteDraft($document)
-                        : $this->invoiceDraft($document),
+                        ? $this->creditNoteDraft($document, $postingDate)
+                        : $this->invoiceDraft($document, $postingDate),
                     actor: $actor,
                     allowClosedPeriod: $allowClosedPeriod,
                 );
@@ -133,7 +159,7 @@ final readonly class IssueSalesDocument
      * summed per component across the whole document — which is the shape the
      * posting rule needs and the shape the tax return is filed in.
      */
-    private function invoiceDraft(SalesDocument $document): JournalDraft
+    private function invoiceDraft(SalesDocument $document, Carbon $postingDate): JournalDraft
     {
         $organization = $this->tenant->organization();
 
@@ -160,7 +186,7 @@ final readonly class IssueSalesDocument
             currency: $document->currency,
             baseCurrency: $organization->base_currency,
             exchangeRate: $document->exchange_rate,
-            date: Carbon::parse($document->issue_date->toDateString()),
+            date: $postingDate,
             documentId: $document->id,
             documentNumber: $document->number,
             sourceType: $document->type->ledgerSource(),
@@ -171,7 +197,7 @@ final readonly class IssueSalesDocument
     /**
      * The §4.5 figures.
      */
-    private function creditNoteDraft(SalesDocument $document): JournalDraft
+    private function creditNoteDraft(SalesDocument $document, Carbon $postingDate): JournalDraft
     {
         $organization = $this->tenant->organization();
 
@@ -189,7 +215,7 @@ final readonly class IssueSalesDocument
             currency: $document->currency,
             baseCurrency: $organization->base_currency,
             exchangeRate: $document->exchange_rate,
-            date: Carbon::parse($document->issue_date->toDateString()),
+            date: $postingDate,
             documentId: $document->id,
             documentNumber: $document->number,
             contactId: $document->contact_id,

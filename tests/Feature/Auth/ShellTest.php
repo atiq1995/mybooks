@@ -138,20 +138,18 @@ it('renders a designed placeholder for modules that are not built yet', function
     $this->get('/sales')->assertRedirect('/sales/invoices');
 
     /*
-     * Accounting has landed, so its section header is a real destination and
-     * the placeholder now covers only the part still to come. This asserts
-     * both halves of that: the section redirects, and the unbuilt submodule
-     * still explains itself.
+     * Accounting has landed in full, opening balances included — the last
+     * part of it that was ever a placeholder. So the section redirects and
+     * the screen is real.
      */
     $this->get('/accounting')->assertRedirect('/accounting/accounts');
 
     $this->get('/accounting/opening-balances')
         ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->component('ModulePlaceholder')
-            ->where('module', 'Opening Balances')
-            ->where('phase', 3),
-        );
+        ->assertInertia(fn (Assert $page) => $page->component('Accounting/OpeningBalances'));
+
+    // And nothing under it claims to be arriving any more.
+    $this->get('/accounting/something-else')->assertNotFound();
 });
 
 it('does not treat arbitrary paths as modules', function (): void {

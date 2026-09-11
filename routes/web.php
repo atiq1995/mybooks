@@ -7,6 +7,7 @@ use App\Http\Controllers\Accounting\CurrencyController;
 use App\Http\Controllers\Accounting\FiscalPeriodController;
 use App\Http\Controllers\Accounting\GeneralLedgerController;
 use App\Http\Controllers\Accounting\JournalController;
+use App\Http\Controllers\Accounting\OpeningBalanceController;
 use App\Http\Controllers\Accounting\TrialBalanceController;
 use App\Http\Controllers\AppearanceController;
 use App\Http\Controllers\DashboardController;
@@ -181,6 +182,20 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
         // one equity figure, and is the last act before filing.
         Route::post('/fiscal-years/{year}/close', [FiscalPeriodController::class, 'closeYear'])
             ->name('fiscal-years.close');
+
+        /*
+         * Opening balances. Its own permission, because it is the one write
+         * that states a position nobody in this system produced — and it
+         * happens once, usually by whoever set the organisation up.
+         */
+        Route::get('/opening-balances', [OpeningBalanceController::class, 'index'])
+            ->name('opening-balances');
+        Route::post('/opening-balances/accounts', [OpeningBalanceController::class, 'storeBalances'])
+            ->name('opening-balances.accounts');
+        Route::post('/opening-balances/invoices', [OpeningBalanceController::class, 'storeInvoice'])
+            ->name('opening-balances.invoices');
+        Route::post('/opening-balances/bills', [OpeningBalanceController::class, 'storeBill'])
+            ->name('opening-balances.bills');
     });
 
     /*
@@ -392,7 +407,7 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
      * Each module replaces its entry here as it lands.
      */
     Route::get('/{module}/{submodule?}', ModulePlaceholderController::class)
-        ->where('module', 'sales|banking|accounting|inventory|reports|contacts|documents|settings|organizations')
+        ->where('module', 'sales|banking|inventory|reports|contacts|documents|settings|organizations')
         ->where('submodule', '[a-z0-9\-]+')
         ->name('module.placeholder');
 });

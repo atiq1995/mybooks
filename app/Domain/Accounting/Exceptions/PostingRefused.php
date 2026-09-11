@@ -105,6 +105,25 @@ final class PostingRefused extends RuntimeException
         );
     }
 
+    /**
+     * An opening balance aimed at a control account.
+     *
+     * Refused rather than dropped, because the mental model behind it is
+     * reasonable — a receivable IS a balance — and the message has to explain
+     * why the answer is "as invoices" instead of just saying no. A lump in
+     * the control account cannot be aged, chased, or reconciled to a customer,
+     * and it would double-count against the documents.
+     */
+    public static function openingControlAccount(string $accountName): self
+    {
+        return new self(
+            "{$accountName} cannot take an opening balance directly. Bring the unpaid ".
+            'invoices and bills across as individual documents instead — a single '.
+            'figure in the control account cannot be aged, chased, or reconciled to '.
+            'anybody, and it would then be counted twice.'
+        );
+    }
+
     public static function cannotReverseAReversal(string $entryNo): self
     {
         return new self(

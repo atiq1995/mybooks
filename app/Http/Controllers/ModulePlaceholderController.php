@@ -71,15 +71,11 @@ final class ModulePlaceholderController extends Controller
             'summary' => 'Bank and cash accounts, statement import, transaction matching and reconciliation.',
             'sections' => ['accounts', 'transactions', 'reconciliation', 'transfers'],
         ],
-        // The ledger itself has landed; only opening balances are still to
-        // come, and they wait on Phase 3's contacts and items — most opening
-        // balances are unpaid invoices, not plain journal lines.
-        'accounting' => [
-            'phase' => 3,
-            'title' => 'Opening Balances',
-            'summary' => 'Bringing forward closing balances from a previous system, including unpaid invoices and bills.',
-            'sections' => ['opening-balances'],
-        ],
+        /*
+         * Accounting has landed in full, opening balances included — so the
+         * module has no entry here. `/accounting/anything-else` is now a 404
+         * rather than a page announcing something that already exists.
+         */
         'inventory' => [
             'phase' => 8,
             'title' => 'Inventory',

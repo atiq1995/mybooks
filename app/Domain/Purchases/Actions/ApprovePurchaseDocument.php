@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Purchases\Actions;
 
+use App\Domain\Accounting\Actions\EnterOpeningDocument;
 use App\Domain\Accounting\Actions\PostJournalEntry;
 use App\Domain\Accounting\Data\JournalDraft;
 use App\Domain\Accounting\Enums\SystemAccount;
@@ -55,10 +56,23 @@ final readonly class ApprovePurchaseDocument
         private AuditRecorder $audit,
     ) {}
 
+    /**
+     * @param  Carbon|null  $postingDate  where the ENTRY lands, when that is
+     *                                    not the document's own date
+     *
+     * For one case and no other: bringing an unpaid bill across from a
+     * previous system. The bill keeps its real date, because its ageing and
+     * the vendor's statement depend on it — but the entry recognising the
+     * liability belongs on the migration date, inside a period this system
+     * keeps.
+     *
+     * @see EnterOpeningDocument
+     */
     public function handle(
         PurchaseDocument $document,
         ?User $actor = null,
         bool $allowClosedPeriod = false,
+        ?Carbon $postingDate = null,
     ): PurchaseDocument {
         if ($document->status->isIssued()) {
             throw PurchaseDocumentRefused::alreadyIssued(
@@ -81,18 +95,22 @@ final readonly class ApprovePurchaseDocument
             );
         }
 
+        // Defaulted here, so both draft builders read from one decision.
+        $postingDate ??= Carbon::parse($document->issue_date->toDateString());
+
         return DB::transaction(function () use (
             $document,
             $actor,
             $allowClosedPeriod,
+            $postingDate,
         ): PurchaseDocument {
             $entryId = null;
 
             if ($document->type->posts()) {
                 $entry = $this->postJournalEntry->handle(
                     draft: $document->type === PurchaseDocumentType::VendorCredit
-                        ? $this->vendorCreditDraft($document)
-                        : $this->billDraft($document),
+                        ? $this->vendorCreditDraft($document, $postingDate)
+                        : $this->billDraft($document, $postingDate),
                     actor: $actor,
                     allowClosedPeriod: $allowClosedPeriod,
                 );
@@ -153,7 +171,7 @@ final readonly class ApprovePurchaseDocument
      * Those two together are exactly the total payable, which is what makes
      * the entry balance without the payable being passed in.
      */
-    private function billDraft(PurchaseDocument $document): JournalDraft
+    private function billDraft(PurchaseDocument $document, Carbon $postingDate): JournalDraft
     {
         $organization = $this->tenant->organization();
 
@@ -173,7 +191,7 @@ final readonly class ApprovePurchaseDocument
             currency: $document->currency,
             baseCurrency: $organization->base_currency,
             exchangeRate: $document->exchange_rate,
-            date: Carbon::parse($document->issue_date->toDateString()),
+            date: $postingDate,
             documentId: $document->id,
             documentNumber: $document->number,
             sourceType: $document->type->ledgerSource(),
@@ -185,7 +203,7 @@ final readonly class ApprovePurchaseDocument
     /**
      * A vendor credit: §4.6 run backwards.
      */
-    private function vendorCreditDraft(PurchaseDocument $document): JournalDraft
+    private function vendorCreditDraft(PurchaseDocument $document, Carbon $postingDate): JournalDraft
     {
         $organization = $this->tenant->organization();
 
@@ -205,7 +223,7 @@ final readonly class ApprovePurchaseDocument
             currency: $document->currency,
             baseCurrency: $organization->base_currency,
             exchangeRate: $document->exchange_rate,
-            date: Carbon::parse($document->issue_date->toDateString()),
+            date: $postingDate,
             documentId: $document->id,
             documentNumber: $document->number,
             contactId: $document->contact_id,
