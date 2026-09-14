@@ -26,6 +26,7 @@ use App\Http\Controllers\Sales\ContactController;
 use App\Http\Controllers\Sales\ItemController;
 use App\Http\Controllers\Sales\PaymentController;
 use App\Http\Controllers\Sales\ReceivablesReportController;
+use App\Http\Controllers\Sales\RecurringInvoiceController;
 use App\Http\Controllers\Sales\SalesDocumentController;
 use App\Http\Controllers\Settings\AppearancePreferencesController;
 use App\Http\Controllers\Settings\MemberController;
@@ -251,6 +252,31 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
             ->name('payments.outstanding');
 
         Route::get('/receivables', [ReceivablesReportController::class, 'index'])->name('receivables');
+
+        /*
+         * Recurring invoices: templates, not documents.
+         *
+         * Before the {type} routes below, which would otherwise match
+         * 'recurring-invoices' as a document type.
+         */
+        Route::prefix('recurring-invoices')->name('recurring.')->group(function (): void {
+            Route::get('/', [RecurringInvoiceController::class, 'index'])->name('index');
+            Route::get('/new', [RecurringInvoiceController::class, 'edit'])->name('create');
+            Route::post('/', [RecurringInvoiceController::class, 'store'])->name('store');
+            Route::get('/{template}', [RecurringInvoiceController::class, 'show'])->name('show');
+            Route::get('/{template}/edit', [RecurringInvoiceController::class, 'edit'])
+                ->name('edit');
+            Route::patch('/{template}', [RecurringInvoiceController::class, 'update'])
+                ->name('update');
+            Route::delete('/{template}', [RecurringInvoiceController::class, 'destroy'])
+                ->name('destroy');
+            Route::post('/{template}/status', [RecurringInvoiceController::class, 'status'])
+                ->name('status');
+            // Run one now rather than waiting for the scheduler. Safe to
+            // press twice.
+            Route::post('/{template}/generate', [RecurringInvoiceController::class, 'generate'])
+                ->name('generate');
+        });
 
         /*
          * The document routes, last within this group: the {type} segment

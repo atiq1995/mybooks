@@ -107,12 +107,12 @@ export const NAVIGATION: NavSection[] = [
                 match: '/sales/receivables',
                 phase: 3,
             },
-            /*
-             * Recurring invoices need a scheduler and a template model, both
-             * of which are their own piece of work — so the entry stays
-             * padlocked rather than pretending.
-             */
-            { label: 'Recurring Invoices', match: '/sales/recurring-invoices', phase: 5 },
+            {
+                label: 'Recurring Invoices',
+                route: 'sales.recurring.index',
+                match: '/sales/recurring-invoices',
+                phase: 5,
+            },
         ],
     },
     {

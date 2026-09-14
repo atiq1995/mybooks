@@ -2,19 +2,21 @@
 
 Where the work stands. Read after `CLAUDE.md`, before doing anything.
 
-**Updated:** 2026-09-09
-**Phase:** 5 — Expenses — **complete; every exit criterion met**
+**Updated:** 2026-09-14
+**Phase:** 5 — Expenses — **complete**, and the carried-over items with it.
+Phase 6 (Banking) is next.
 **Phase 0:** complete, verified, pushed (`085d102`).
-**Phase 1:** complete apart from two items listed under Gaps.
-**Phase 2:** complete; every exit criterion met bar opening balances, which
-was deferred because it needs contacts and items.
-**Phase 3:** complete apart from three items listed at the end of its section.
+**Phase 1:** complete bar the browser E2E suite; the settings screen it was
+also missing landed with the outstanding items below.
+**Phase 2:** complete; opening balances, its one deferral, now delivered.
+**Phase 3:** complete; recurring invoices delivered. The invoice PDF pipeline
+is the one thing still open, and it waits on the document store.
 **Phase 4:** complete; every exit criterion met.
 
-**Gates, as of this update:** 620 tests / 3,293 assertions green — 106 Unit,
-304 Feature, 203 Accounting, 7 Browser against a real Chromium; the accounting
-suite also re-run serially, as it asserts ledger-wide state. PHPStan level max
-clean; Pint clean; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`) clean;
+**Gates, as of this update:** 685 tests / 3,628 assertions green in parallel,
+plus the accounting suite re-run serially (235 tests / 812 assertions), as it
+asserts ledger-wide state. PHPStan level max clean; Pint clean; type coverage
+97.1%; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`) clean; Prettier clean;
 production asset build succeeds. Every figure in this document was observed,
 not assumed.
 
@@ -136,8 +138,9 @@ isolation layers disagreeing:
    Horizon reports its own supervisor state, and the scheduler and migrate
    job have no misleading check at all.
 
-Still to do this phase: the organisation settings screen and the browser E2E
-suite. Everything else in Phase 1 is done and verified.
+Still to do this phase: the browser E2E suite. The organisation settings
+screen landed after Phase 5 — see "Outstanding items, closed". Everything
+else in Phase 1 is done and verified.
 
 ---
 
@@ -398,7 +401,8 @@ organisation explicitly.
 - [x] Closed periods refuse postings without the override; locked refuse all
 - [x] `verify-ledger` catches a deliberately corrupted balance
 - [x] Gap-free numbering under rollback
-- [ ] Opening balances (deferred to Phase 3 — needs contacts and items)
+- [x] Opening balances — delivered after Phase 5, once contacts and items
+      existed (see "Outstanding items, closed")
 - [x] Multi-currency: rate store, "latest on or before" lookup, period-end
       revaluation with next-day reversal, FX gain/loss posting
 - [x] Year-end close — profit or loss to retained earnings, periods closed
@@ -544,12 +548,12 @@ asserts something different every day it runs.
 - [x] Ageing report reconciles to the receivables control account, and says so
 - [x] Gap-free numbering per document type
 - [x] Cross-tenant access refused at the HTTP layer, per role
-- [ ] Recurring invoices — deferred to Phase 4; needs a template model and the
-      scheduler, which is its own piece of work rather than a variation on an
-      invoice
+- [x] Recurring invoices — delivered after Phase 5 (see "Outstanding items,
+      closed"). A template model and a nightly scheduler, which is its own
+      piece of work rather than a variation on an invoice
 - [ ] Invoice PDF pipeline — deferred; needs the document/attachment store
-- [ ] Opening balances — inherited from Phase 2 and still open. Contacts and
-      items now exist, so nothing blocks it
+- [x] Opening balances — inherited from Phase 2, and now closed (see
+      "Outstanding items, closed")
 
 ---
 
@@ -807,9 +811,100 @@ overflow.
 
 ---
 
+## Outstanding items, closed
+
+Three things had been carried from earlier phases. All three are now done, and
+each one turned up a defect in the layer underneath it.
+
+### Opening balances (Phase 2's last exit criterion)
+
+`EnterOpeningBalances` writes **one** journal entry dated the day before the
+first period opens, with equity as the plug — so a set of books that does not
+balance on day one is visible as retained earnings rather than silently
+absorbed. It refuses a control account outright: receivables and payables are
+what the customer and vendor **documents** total to, and typing a figure
+against them would put the control account and its subsidiary ledger
+permanently out of step.
+
+Unpaid invoices and bills therefore go in as documents, through
+`EnterOpeningDocument`, which issues an invoice or approves a bill with its
+real issue date but posts it at the opening date.
+
+- The defect it exposed: `IssueSalesDocument` and `ApprovePurchaseDocument`
+  both posted at the document's issue date with no way to say otherwise, so an
+  invoice dated before the first fiscal period was unpostable. Both now take
+  an optional `?Carbon $postingDate`, threaded into the draft.
+- Re-running is idempotent: the entry's source id is derived from the opening
+  date with a UUIDv5, so a second attempt replaces rather than doubles.
+- 15 accounting tests, 11 HTTP tests.
+
+### Organisation settings (Phase 1 leftover)
+
+`/settings/organization` — name, legal name, tax registrations, address,
+fiscal year start. Two fields are shown but not editable, and the server is
+where that is decided rather than the form:
+
+- **Base currency** is absent from the validation rules entirely. Not
+  `prohibited`, not disabled in React — absent, so a crafted request cannot
+  set it either. Changing it would silently reinterpret every figure already
+  posted.
+- **Fiscal year start** is `prohibitedIf($hasPosted)`: free to set while the
+  books are empty, refused once anything has posted, because moving it would
+  move which entries fall in which year.
+
+10 HTTP tests, including the crafted-request cases.
+
+### Recurring invoices (Phase 3's last deferral)
+
+A template is **not** an invoice: no number, no total, nothing posted. It
+produces ordinary invoices, each dated on its own occurrence, and those are
+the records.
+
+- `GenerateRecurringInvoices` catches up rather than skipping — a template due
+  in July and not run until October bills all three occurrences, each at its
+  own date — capped at 24 per run so a badly-dated template cannot produce a
+  decade of invoices in one go.
+- Idempotency is a `unique (recurring_invoice_id, scheduled_for)` index, not a
+  check in PHP: the scheduler firing twice, a retried worker and somebody
+  pressing **Run now** mid-run are three separate processes, and only the
+  database can arbitrate between them.
+- Occurrences are counted from the anchor, never stepped from the previous
+  one. Stepping clamps 31 January to 28 February and then keeps the 28th for
+  ever; a monthly retainer that quietly moves its billing date is a bug people
+  discover in a year-end reconciliation.
+- A failed occurrence is recorded against the template with its reason and
+  shown on the screen. An unbillable customer must not leave a business
+  wondering why no invoice went out.
+- Nightly at 06:00, per organisation, inside each organisation's tenant
+  context — a scheduled command has none of its own, and the second isolation
+  layer would return zero rows without it. One organisation's failure does not
+  stop another being billed.
+- **Run now** needs `sales.send` **and**, where the template issues
+  automatically, `accounting.post`. Without the second, a bookkeeper — whose
+  definition is "prepares, cannot post" — could post a year of revenue with
+  one button.
+
+Three defects found writing the tests: a run row written before the invoice
+existed (violating the outcome-consistency constraint, and able to consume an
+occurrence that was never billed); month-end drift from stepping; and a check
+constraint that forbade a paused template from keeping its place, corrected
+forward-only in `2026_06_01_000300`.
+
+17 accounting tests, 12 HTTP tests.
+
+**Gates after this work:** 685 tests / 3,628 assertions green in parallel, and
+the accounting suite re-run serially — 235 tests / 812 assertions — because it
+asserts ledger-wide state. PHPStan level max clean, Pint clean, type coverage
+97.1%, `tsc --noEmit` clean, ESLint (incl. `jsx-a11y`) clean, Prettier clean,
+production asset build succeeds. Observed, not assumed.
+
+---
+
 ## Next
 
-1. Opening balances — unblocked since Phase 3, and the oldest outstanding item
-2. Phase 1 leftover: an organisation settings screen
-3. Browser journeys through the sales, purchase and expense screens
-4. Then Phase 6 — Banking, plus recurring invoices
+1. Browser journeys through the sales, purchase and expense screens
+2. `/api/v1` — Sanctum is installed but no routes exist; Phase 1's exit
+   criterion references it for tenant isolation
+3. Invoice PDF pipeline — the remaining Phase 3 deferral
+4. Phase 6 — Banking: accounts, statement import, matching, reconciliation,
+   transfers

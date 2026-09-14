@@ -66,15 +66,14 @@ three layers; reversals restore balances exactly; closed periods refuse
 postings without the override; `verify-ledger` catches a deliberately
 corrupted balance.
 
-**Status:** the ledger, its five screens and the exit criteria above are done
-(see `PROJECT_STATUS.md`). Still open within this phase: year-end close,
-multi-currency revaluation, and a committed browser suite. Opening balances
-moved to Phase 3 — most of them are unpaid invoices and bills, which need
-contacts and items to exist first.
+**Status:** complete — 2026-09-14. The ledger, its five screens, year-end
+close and multi-currency revaluation are all done, and opening balances —
+deferred to Phase 3 because most of them are unpaid invoices and bills — were
+delivered after Phase 5. Still open: a committed browser suite.
 
 ---
 
-## Phase 3 — Sales
+## Phase 3 — Sales · *complete — 2026-09-14*
 
 Customers, items and services, taxes, estimates, sales orders, invoices,
 recurring invoices, payments received, credit notes, customer statements.
@@ -87,6 +86,10 @@ account.
 
 *After this phase the product can invoice real customers and the books will
 be correct.*
+
+**Status:** the exit criteria are met and recurring invoices, deferred at the
+time as their own piece of work, were delivered after Phase 5. Still open: the
+invoice PDF pipeline, which waits on the document store.
 
 ---
 
