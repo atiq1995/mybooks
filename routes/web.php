@@ -30,6 +30,7 @@ use App\Http\Controllers\Sales\SalesDocumentController;
 use App\Http\Controllers\Settings\AppearancePreferencesController;
 use App\Http\Controllers\Settings\MemberController;
 use App\Http\Controllers\Settings\MileageRateController;
+use App\Http\Controllers\Settings\OrganizationSettingsController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
 use App\Http\Controllers\Settings\TaxController;
@@ -114,6 +115,16 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
     // /settings has no screen of its own — the first real one stands in for
     // it, rather than a placeholder telling the user settings are unbuilt.
     Route::redirect('/settings', '/settings/profile');
+
+    /*
+     * The organisation's own details. Reading needs `settings.view`; changing
+     * them needs `settings.organization`, because a company's legal name and
+     * tax numbers appear on every document it issues.
+     */
+    Route::get('/settings/organization', [OrganizationSettingsController::class, 'show'])
+        ->name('settings.organization');
+    Route::patch('/settings/organization', [OrganizationSettingsController::class, 'update'])
+        ->name('settings.organization.update');
 
     Route::get('/settings/profile', [ProfileController::class, 'show'])->name('settings.profile');
     Route::get('/settings/security', [SecurityController::class, 'show'])->name('settings.security');

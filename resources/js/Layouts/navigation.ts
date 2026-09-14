@@ -322,6 +322,42 @@ export const NAVIGATION: NavSection[] = [
         route: 'settings.profile',
         match: '/settings',
         phase: 1,
+        items: [
+            // The company itself first: it is the thing everything else in
+            // here is a setting OF.
+            {
+                label: 'Organisation',
+                route: 'settings.organization',
+                match: '/settings/organization',
+                phase: 1,
+            },
+            { label: 'People', route: 'settings.members', match: '/settings/members', phase: 1 },
+            { label: 'Tax rates', route: 'settings.taxes', match: '/settings/taxes', phase: 3 },
+            {
+                label: 'Mileage rates',
+                route: 'settings.mileage',
+                match: '/settings/mileage',
+                phase: 5,
+            },
+            {
+                label: 'Your profile',
+                route: 'settings.profile',
+                match: '/settings/profile',
+                phase: 1,
+            },
+            {
+                label: 'Security',
+                route: 'settings.security',
+                match: '/settings/security',
+                phase: 1,
+            },
+            {
+                label: 'Appearance',
+                route: 'settings.appearance-preferences',
+                match: '/settings/appearance-preferences',
+                phase: 1,
+            },
+        ],
     },
 ];
 
