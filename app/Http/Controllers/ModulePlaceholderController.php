@@ -65,12 +65,12 @@ final class ModulePlaceholderController extends Controller
          * a second table naming the same thing would be a second source of
          * truth about where a cost belongs.
          */
-        'banking' => [
-            'phase' => 6,
-            'title' => 'Banking',
-            'summary' => 'Bank and cash accounts, statement import, transaction matching and reconciliation.',
-            'sections' => ['accounts', 'transactions', 'reconciliation', 'transfers'],
-        ],
+        /*
+         * Banking has landed in full — accounts, import, matching,
+         * reconciliation and transfers — so it has no entry here, and
+         * `/banking/anything-else` is a 404 rather than a page announcing
+         * something that already works.
+         */
         /*
          * Accounting has landed in full, opening balances included — so the
          * module has no entry here. `/accounting/anything-else` is now a 404

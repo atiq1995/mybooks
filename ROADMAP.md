@@ -114,7 +114,7 @@ receivable.
 
 ---
 
-## Phase 6 — Banking
+## Phase 6 — Banking · *complete — 2026-09-14*
 
 Bank and cash accounts, statement import (CSV, OFX, QIF), transaction
 matching, reconciliation workflow, transfers.
@@ -124,6 +124,10 @@ permissioned, audited act.
 
 **Exit:** a statement reconciles to zero difference; no suggestion has ever
 posted without confirmation; a reconciled period cannot be silently altered.
+
+**Status:** every exit criterion met. The freeze is a database trigger rather
+than a controller check, so it holds for any code path. See
+`docs/adr/0005-bank-reconciliation.md`.
 
 ---
 

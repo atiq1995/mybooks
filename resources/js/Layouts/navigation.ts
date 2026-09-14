@@ -217,16 +217,28 @@ export const NAVIGATION: NavSection[] = [
         icon: ArrowLeftRight,
         match: '/banking',
         phase: 6,
+        route: 'banking.accounts',
         items: [
-            { label: 'Accounts', match: '/banking/accounts', phase: 6 },
+            { label: 'Accounts', route: 'banking.accounts', match: '/banking/accounts', phase: 6 },
             {
                 label: 'Transactions',
+                route: 'banking.transactions',
                 match: '/banking/transactions',
                 phase: 6,
                 badge: 'unreconciled',
             },
-            { label: 'Reconciliation', match: '/banking/reconciliation', phase: 6 },
-            { label: 'Transfers', match: '/banking/transfers', phase: 6 },
+            {
+                label: 'Reconciliation',
+                route: 'banking.reconciliation',
+                match: '/banking/reconciliation',
+                phase: 6,
+            },
+            {
+                label: 'Transfers',
+                route: 'banking.transfers',
+                match: '/banking/transfers',
+                phase: 6,
+            },
         ],
     },
     {
@@ -367,7 +379,7 @@ export const NAVIGATION: NavSection[] = [
  *
  * Raise this as each phase lands.
  */
-export const CURRENT_PHASE = 5;
+export const CURRENT_PHASE = 6;
 
 export function isAvailable(phase: number): boolean {
     return phase <= CURRENT_PHASE;

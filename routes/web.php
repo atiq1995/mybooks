@@ -10,6 +10,10 @@ use App\Http\Controllers\Accounting\JournalController;
 use App\Http\Controllers\Accounting\OpeningBalanceController;
 use App\Http\Controllers\Accounting\TrialBalanceController;
 use App\Http\Controllers\AppearanceController;
+use App\Http\Controllers\Banking\BankAccountController;
+use App\Http\Controllers\Banking\BankReconciliationController;
+use App\Http\Controllers\Banking\BankTransactionController;
+use App\Http\Controllers\Banking\BankTransferController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Expenses\ExpenseController;
 use App\Http\Controllers\Expenses\ReceiptController;
@@ -417,6 +421,49 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
             ->name('receipts.destroy');
     });
 
+    /*
+     * Banking.
+     *
+     * The routes mirror the separation of duties rather than the tables:
+     * importing is its own permission because it changes nothing, matching
+     * and reconciling are another because they are the judgements the books
+     * rest on, and transfers are a third because they are the only thing here
+     * that posts.
+     */
+    Route::prefix('banking')->name('banking.')->group(function (): void {
+        Route::get('/accounts', [BankAccountController::class, 'index'])->name('accounts');
+        Route::post('/accounts', [BankAccountController::class, 'store'])->name('accounts.store');
+        Route::patch('/accounts/{bankAccount}', [BankAccountController::class, 'update'])
+            ->name('accounts.update');
+        Route::delete('/accounts/{bankAccount}', [BankAccountController::class, 'archive'])
+            ->name('accounts.archive');
+
+        Route::get('/transactions', [BankTransactionController::class, 'index'])
+            ->name('transactions');
+        Route::post('/accounts/{bankAccount}/import', [BankTransactionController::class, 'import'])
+            ->name('transactions.import');
+        Route::post('/transactions/{line}/match', [BankTransactionController::class, 'match'])
+            ->name('transactions.match');
+        Route::post('/transactions/{line}/unmatch', [BankTransactionController::class, 'unmatch'])
+            ->name('transactions.unmatch');
+        Route::post('/transactions/{line}/exclude', [BankTransactionController::class, 'exclude'])
+            ->name('transactions.exclude');
+
+        Route::get('/reconciliation', [BankReconciliationController::class, 'index'])
+            ->name('reconciliation');
+        Route::post('/reconciliation', [BankReconciliationController::class, 'store'])
+            ->name('reconciliation.store');
+        Route::post('/reconciliation/{reconciliation}/complete', [BankReconciliationController::class, 'complete'])
+            ->name('reconciliation.complete');
+        Route::delete('/reconciliation/{reconciliation}', [BankReconciliationController::class, 'destroy'])
+            ->name('reconciliation.abandon');
+
+        Route::get('/transfers', [BankTransferController::class, 'index'])->name('transfers');
+        Route::post('/transfers', [BankTransferController::class, 'store'])->name('transfers.store');
+        Route::post('/transfers/{transfer}/void', [BankTransferController::class, 'void'])
+            ->name('transfers.void');
+    });
+
     // Mileage rates. Configuration, and dated like a tax rate.
     Route::get('/settings/mileage', [MileageRateController::class, 'index'])
         ->name('settings.mileage');
@@ -444,7 +491,7 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
      * Each module replaces its entry here as it lands.
      */
     Route::get('/{module}/{submodule?}', ModulePlaceholderController::class)
-        ->where('module', 'sales|banking|inventory|reports|contacts|documents|settings|organizations')
+        ->where('module', 'sales|inventory|reports|contacts|documents|settings|organizations')
         ->where('submodule', '[a-z0-9\-]+')
         ->name('module.placeholder');
 });

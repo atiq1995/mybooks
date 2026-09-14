@@ -3,8 +3,8 @@
 Where the work stands. Read after `CLAUDE.md`, before doing anything.
 
 **Updated:** 2026-09-14
-**Phase:** 5 — Expenses — **complete**, and the carried-over items with it.
-Phase 6 (Banking) is next.
+**Phase:** 6 — Banking — **complete; every exit criterion met.** Phase 7
+(Reports) is next.
 **Phase 0:** complete, verified, pushed (`085d102`).
 **Phase 1:** complete bar the browser E2E suite; the settings screen it was
 also missing landed with the outstanding items below.
@@ -13,10 +13,10 @@ also missing landed with the outstanding items below.
 is the one thing still open, and it waits on the document store.
 **Phase 4:** complete; every exit criterion met.
 
-**Gates, as of this update:** 685 tests / 3,628 assertions green in parallel,
-plus the accounting suite re-run serially (235 tests / 812 assertions), as it
+**Gates, as of this update:** 741 tests / 3,924 assertions green in parallel,
+plus the accounting suite re-run serially (270 tests / 931 assertions), as it
 asserts ledger-wide state. PHPStan level max clean; Pint clean; type coverage
-97.1%; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`) clean; Prettier clean;
+97.0%; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`) clean; Prettier clean;
 production asset build succeeds. Every figure in this document was observed,
 not assumed.
 
@@ -900,11 +900,111 @@ production asset build succeeds. Observed, not assumed.
 
 ---
 
+## Phase 6 — Banking
+
+### The idea the whole phase turns on
+
+**A bank statement is evidence about the books, never an entry in them.**
+Importing writes rows in `bank_statement_lines` and not one journal line.
+Matching writes a row saying "this statement line is that journal line" and
+posts nothing either — both sides existed already. The only banking document
+that posts is a transfer.
+
+That is what makes the separation of duties work: `banking.import` is
+harmless, so a bookkeeper has it; `banking.reconcile` is the judgement the
+books rest on, so a bookkeeper does not.
+
+### Schema
+
+- `bank_accounts` — a PROFILE attached to a ledger account, not a second
+  account. The balance stays in the chart of accounts; a cached total here
+  would be a second answer to the same question. Unique on `account_id`.
+- `bank_statement_imports` — one row per file, kept even when every line in it
+  was a duplicate, because "I imported June twice and nothing appeared" is a
+  question people ask.
+- `bank_statement_lines` — signed amounts (positive in, negative out), and a
+  `fingerprint` that hashes the line's content plus its occurrence number
+  within the account. A re-imported file collides on every row; two genuinely
+  identical transactions on one day both survive.
+- `bank_transaction_matches` — the one join between the bank's world and ours.
+  Unique on `journal_line_id`: a ledger line clears once.
+- `bank_reconciliations` — four figures and the relationship between them, with
+  `difference = closing − cleared` enforced as a CHECK, and completion refused
+  unless that difference is zero.
+- `bank_transfers` — §4.9, with both amounts recorded for a cross-currency
+  move.
+
+### What cannot be done, and where the refusal lives
+
+- **Matching a near-enough amount** — the suggester requires an exact match.
+  12,450 accepted against 12,540 is how a reconciliation reaches zero while
+  being wrong, and nothing on any screen would say so afterwards.
+- **Matching on another account, in the wrong direction, twice, or for more
+  than the line is worth** — four refusals in `ConfirmStatementMatch`, each
+  closing a different route to a forced zero. The "twice" one is a unique
+  index, because only the database can arbitrate between processes.
+- **Changing a completed reconciliation** — two database triggers. Statement
+  lines and matches stamped with a reconciliation's id refuse every update and
+  delete; a completed reconciliation refuses to be reopened or deleted. In PHP
+  this would be bypassable by a console command or a stray `->update()`.
+- **Voiding a reconciled transfer** — the bank says the money moved and a
+  completed period says we agreed. A correcting transfer in a later period
+  keeps both periods adding up.
+- **Recording a transfer without `accounting.post`** — a transfer writes in the
+  ledger, and `banking.transfer` is not permission to do that.
+
+### Statement formats
+
+Three parsers, no database access in any of them, so the same assertions cover
+all three.
+
+- **CSV** — the hard one, because there is no standard. Column synonyms
+  (`Narration`, `Particulars`, `Value Date`, a signed `Amount` or a
+  `Withdrawal`/`Deposit` pair), a header row found rather than assumed, and
+  amounts read through thousands separators, currency symbols, trailing CR/DR
+  and accountants' parentheses. **Date order is inferred from the whole file**:
+  one unambiguous row settles the convention for every other, because a
+  row-by-row guess produces a single statement with two conventions in it.
+- **OFX/QFX** — read with expressions rather than an XML parser, because OFX
+  1.x is SGML and real banks leave tags unclosed. `FITID` becomes the
+  reference, so identity comes from the bank rather than from a description.
+- **QIF** — record-per-`^`, with the same whole-file date inference.
+
+A row that cannot be read stops the import rather than being skipped: a
+statement missing a line is worse than no statement, because it reconciles to
+a difference nobody can explain.
+
+### Reconciling proves the books, not the file
+
+Alongside the four statement figures, the screen carries the ledger balance at
+the period end and the entries of ours that no statement line has cleared —
+unpresented cheques. When every earlier period reconciled,
+
+    cleared = ledger balance − unpresented
+
+holds exactly, and an accounting test asserts it against a deliberately
+unpresented payment.
+
+### Phase 6 exit criteria
+
+- [x] A statement reconciles to zero difference — asserted end to end, and
+      refused with the actual figure when it does not
+- [x] No suggestion has ever posted without confirmation — the journal-entry
+      count is asserted before and after import and after matching
+- [x] A reconciled period cannot be silently altered — asserted through the
+      domain in words, and through raw SQL against the triggers
+- [x] Transfers post §4.9 and touch neither income nor expense, with the cost
+      of a cross-currency conversion booked as FX rather than absorbed
+- [x] Separation of duties: a bookkeeper can import and can do nothing else
+
+**56 new tests** — 35 accounting, 21 HTTP.
+
+---
+
 ## Next
 
-1. Browser journeys through the sales, purchase and expense screens
+1. Browser journeys through the sales, purchase, expense and banking screens
 2. `/api/v1` — Sanctum is installed but no routes exist; Phase 1's exit
    criterion references it for tenant isolation
 3. Invoice PDF pipeline — the remaining Phase 3 deferral
-4. Phase 6 — Banking: accounts, statement import, matching, reconciliation,
-   transfers
+4. Phase 7 — Reports: the financial statements, and the tax return

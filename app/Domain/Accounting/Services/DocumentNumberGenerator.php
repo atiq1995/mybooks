@@ -147,6 +147,9 @@ final readonly class DocumentNumberGenerator
 
             'expense' => 'EXP-',
 
+            'bank_transfer' => 'TRF-',
+            'reconciliation' => 'REC-',
+
             'journal' => 'JE-',
 
             default => mb_strtoupper(mb_substr($documentType, 0, 3)).'-',
