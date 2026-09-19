@@ -26,6 +26,10 @@ use App\Http\Controllers\OrganizationSwitchController;
 use App\Http\Controllers\Purchases\PayablesReportController;
 use App\Http\Controllers\Purchases\PurchaseDocumentController;
 use App\Http\Controllers\Purchases\VendorPaymentController;
+use App\Http\Controllers\Reports\AnalyticsController;
+use App\Http\Controllers\Reports\FinancialStatementController;
+use App\Http\Controllers\Reports\ReportIndexController;
+use App\Http\Controllers\Reports\TaxSummaryController;
 use App\Http\Controllers\Sales\ContactController;
 use App\Http\Controllers\Sales\ItemController;
 use App\Http\Controllers\Sales\PaymentController;
@@ -464,6 +468,28 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
             ->name('transfers.void');
     });
 
+    /*
+     * Reports.
+     *
+     * Exporting is a FORMAT on the same URL rather than a route of its own —
+     * `?format=csv`, `xlsx` or `print`. That is what makes an exported figure
+     * provably the same figure as the one on screen: there is one controller
+     * action, one report object, and one set of filters behind all four.
+     */
+    Route::prefix('reports')->name('reports.')->group(function (): void {
+        Route::get('/', ReportIndexController::class)->name('index');
+
+        Route::get('/profit-and-loss', [FinancialStatementController::class, 'profitAndLoss'])
+            ->name('profit-and-loss');
+        Route::get('/balance-sheet', [FinancialStatementController::class, 'balanceSheet'])
+            ->name('balance-sheet');
+        Route::get('/cash-flow', [FinancialStatementController::class, 'cashFlow'])
+            ->name('cash-flow');
+
+        Route::get('/tax-summary', TaxSummaryController::class)->name('tax-summary');
+        Route::get('/analytics', AnalyticsController::class)->name('analytics');
+    });
+
     // Mileage rates. Configuration, and dated like a tax rate.
     Route::get('/settings/mileage', [MileageRateController::class, 'index'])
         ->name('settings.mileage');
@@ -491,7 +517,7 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
      * Each module replaces its entry here as it lands.
      */
     Route::get('/{module}/{submodule?}', ModulePlaceholderController::class)
-        ->where('module', 'sales|inventory|reports|contacts|documents|settings|organizations')
+        ->where('module', 'inventory|contacts|documents|settings|organizations')
         ->where('submodule', '[a-z0-9\-]+')
         ->name('module.placeholder');
 });

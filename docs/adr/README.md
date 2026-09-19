@@ -15,3 +15,4 @@ new one that links back.
 | [0003](0003-frankenphp-runtime.md)      | FrankenPHP as the runtime, classic mode                         | Accepted |
 | [0004](0004-money-representation.md)    | `numeric(19,4)` + Brick\Money; floats prohibited                | Accepted |
 | [0005](0005-bank-reconciliation.md)     | A bank statement is evidence, never an entry                    | Accepted |
+| [0006](0006-reports-read-through-one-service.md) | Every report reads the ledger through one service                | Accepted |

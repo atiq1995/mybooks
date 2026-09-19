@@ -310,6 +310,7 @@ export const NAVIGATION: NavSection[] = [
     {
         label: 'Reports',
         icon: ChartNoAxesColumn,
+        route: 'reports.index',
         match: '/reports',
         phase: 7,
     },
@@ -379,7 +380,7 @@ export const NAVIGATION: NavSection[] = [
  *
  * Raise this as each phase lands.
  */
-export const CURRENT_PHASE = 6;
+export const CURRENT_PHASE = 7;
 
 export function isAvailable(phase: number): boolean {
     return phase <= CURRENT_PHASE;

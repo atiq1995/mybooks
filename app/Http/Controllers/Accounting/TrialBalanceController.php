@@ -5,14 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Accounting;
 
 use App\Domain\Access\Enums\Permission;
-use App\Domain\Accounting\Enums\AccountType;
+use App\Domain\Reports\Services\LedgerBalances;
 use App\Http\Controllers\Controller;
 use App\Support\Tenancy\TenantContext;
 use Brick\Math\BigDecimal;
-use Illuminate\Database\Query\JoinClause;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -32,6 +30,7 @@ final class TrialBalanceController extends Controller
 {
     public function __construct(
         private readonly TenantContext $tenant,
+        private readonly LedgerBalances $balances,
     ) {}
 
     public function index(Request $request): Response
@@ -43,36 +42,22 @@ final class TrialBalanceController extends Controller
         $asOf = $this->date($request->query('as_of')) ?? Carbon::now();
         $includeZero = $request->boolean('zero');
 
-        $rows = DB::table('accounts')
-            ->leftJoin('journal_lines', 'journal_lines.account_id', '=', 'accounts.id')
-            ->leftJoin('journal_entries', function (JoinClause $join) use ($asOf): void {
-                $join->on('journal_entries.id', '=', 'journal_lines.journal_entry_id')
-                    ->whereDate('journal_entries.entry_date', '<=', $asOf->toDateString());
-            })
-            // Headings hold no postings; including them would double every
-            // subtotal they group.
-            ->where('accounts.is_header', false)
-            ->groupBy('accounts.id', 'accounts.code', 'accounts.name', 'accounts.type')
-            ->orderBy('accounts.code')
-            ->select([
-                'accounts.id',
-                'accounts.code',
-                'accounts.name',
-                'accounts.type',
-            ])
-            ->selectRaw('COALESCE(SUM(journal_lines.debit_base), 0) AS debits')
-            ->selectRaw('COALESCE(SUM(journal_lines.credit_base), 0) AS credits')
-            ->get();
-
+        /*
+         * Read through the same service every report uses.
+         *
+         * It was its own query once, and that is how it came to include
+         * entries dated AFTER the as-at date: filtering the entry in a join
+         * condition leaves the line in the sum. A trial balance quietly wrong
+         * for every historical date is the worst possible place for that bug,
+         * since it is the screen people open to check whether anything else
+         * is wrong.
+         */
         $totalDebit = BigDecimal::zero();
         $totalCredit = BigDecimal::zero();
         $lines = [];
 
-        foreach ($rows as $row) {
-            /** @var object{id: string, code: string, name: string, type: string, debits: string, credits: string} $row */
-            $debits = BigDecimal::of((string) $row->debits);
-            $credits = BigDecimal::of((string) $row->credits);
-            $net = $debits->minus($credits);
+        foreach ($this->balances->asAt($asOf, includeZero: true) as $balance) {
+            $net = $balance->net();
 
             /*
              * A trial balance shows each account on ONE side: its net
@@ -90,15 +75,13 @@ final class TrialBalanceController extends Controller
             $totalDebit = $totalDebit->plus($debit);
             $totalCredit = $totalCredit->plus($credit);
 
-            $type = AccountType::from($row->type);
-
             $lines[] = [
-                'id' => $row->id,
-                'code' => $row->code,
-                'name' => $row->name,
-                'type' => $type->value,
-                'type_label' => $type->label(),
-                'order' => $type->order(),
+                'id' => $balance->accountId,
+                'code' => $balance->code,
+                'name' => $balance->name,
+                'type' => $balance->type->value,
+                'type_label' => $balance->type->label(),
+                'order' => $balance->type->order(),
                 'debit' => (string) $debit,
                 'credit' => (string) $credit,
             ];

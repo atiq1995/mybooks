@@ -35,15 +35,10 @@ final class ModulePlaceholderController extends Controller
      * @var array<string, array{phase: int, title: string, summary: string, sections: list<string>}>
      */
     private const array MODULES = [
-        // Sales has landed. Only recurring invoices are still to come:
-        // they need a template model and the scheduler, which is its own
-        // piece of work rather than a variation on an invoice.
-        'sales' => [
-            'phase' => 4,
-            'title' => 'Recurring Invoices',
-            'summary' => 'Invoice templates that generate on a schedule, each posting at its own date.',
-            'sections' => ['recurring-invoices'],
-        ],
+        /*
+         * Sales has landed in full, recurring invoices included, so it has no
+         * entry here either.
+         */
         /*
          * Purchases has landed in full: orders, bills, vendor credits,
          * payments, payables and withholding at payment all have real
@@ -81,14 +76,6 @@ final class ModulePlaceholderController extends Controller
             'title' => 'Inventory',
             'summary' => 'Items with stock tracking, warehouses, adjustments and weighted-average valuation.',
             'sections' => ['items', 'warehouses', 'adjustments', 'valuation'],
-        ],
-        'reports' => [
-            'phase' => 7,
-            'title' => 'Reports',
-            'summary' => 'Profit and loss, balance sheet, cash flow, ageing, tax summary — each drilling through to its journal lines.',
-            // Named individually once they exist; the section list is empty
-            // until then, so /reports/profit-and-loss is honestly a 404.
-            'sections' => [],
         ],
         'contacts' => [
             'phase' => 3,

@@ -131,7 +131,7 @@ than a controller check, so it holds for any code path. See
 
 ---
 
-## Phase 7 — Reports
+## Phase 7 — Reports · *complete — 2026-09-19*
 
 Profit & loss, balance sheet, cash flow, trial balance, general ledger,
 AR/AP ageing, tax summary, sales and expense analytics — with comparison
@@ -139,6 +139,13 @@ periods, drill-through to journal lines, and export to CSV, XLSX and PDF.
 
 **Exit:** every report reconciles to the ledger; every figure drills through
 to the journal lines that produced it; a printed report is legible.
+
+**Status:** every exit criterion met. All three statements read the ledger
+through one service, so they reconcile to each other by construction; the
+cash flow falls out of the ledger identity and checks itself against the
+movement on the cash accounts. PDF is produced by printing the print view
+rather than rendered on the server — see `docs/adr/0006`, which records why
+and what would change the decision.
 
 ---
 

@@ -2,9 +2,9 @@
 
 Where the work stands. Read after `CLAUDE.md`, before doing anything.
 
-**Updated:** 2026-09-14
-**Phase:** 6 — Banking — **complete; every exit criterion met.** Phase 7
-(Reports) is next.
+**Updated:** 2026-09-19
+**Phase:** 7 — Reports — **complete; every exit criterion met.** Phase 8
+(Inventory) is next.
 **Phase 0:** complete, verified, pushed (`085d102`).
 **Phase 1:** complete bar the browser E2E suite; the settings screen it was
 also missing landed with the outstanding items below.
@@ -12,13 +12,20 @@ also missing landed with the outstanding items below.
 **Phase 3:** complete; recurring invoices delivered. The invoice PDF pipeline
 is the one thing still open, and it waits on the document store.
 **Phase 4:** complete; every exit criterion met.
+**Phase 5:** complete; every exit criterion met.
+**Phase 6:** complete; every exit criterion met.
 
-**Gates, as of this update:** 741 tests / 3,924 assertions green in parallel,
-plus the accounting suite re-run serially (270 tests / 931 assertions), as it
-asserts ledger-wide state. PHPStan level max clean; Pint clean; type coverage
-97.0%; `tsc --noEmit` clean; ESLint (incl. `jsx-a11y`) clean; Prettier clean;
-production asset build succeeds. Every figure in this document was observed,
-not assumed.
+**Gates, as of this update:** 764 tests / 4,083 assertions green across Unit,
+Feature and Accounting in parallel, plus the accounting suite re-run serially
+(287 tests / 982 assertions), as it asserts ledger-wide state. PHPStan level
+max clean; Pint clean; type coverage 97.0%; `tsc --noEmit` clean; ESLint
+(incl. `jsx-a11y`) clean; Prettier clean; production asset build succeeds.
+
+**The 7 Browser tests do not currently run in this environment.** They time
+out waiting for the login page to become interactive, and they fail the same
+way on the commit before this phase — so it is the container, not the code.
+They are not counted above. Fixing the browser harness is the first item under
+Next. Every other figure in this document was observed, not assumed.
 
 ### Phase 1 (complete)
 
@@ -1001,10 +1008,126 @@ unpresented payment.
 
 ---
 
+## Phase 7 — Reports
+
+### One service reads the ledger
+
+Every figure on every statement comes from `LedgerBalances`, and nothing else
+reads the ledger for reporting. Three reports each writing their own aggregate
+is three chances to filter differently — one forgetting heading accounts, one
+rounding elsewhere, one using the transaction amount instead of base currency
+— and the resulting set of statements disagrees in ways nobody can trace. The
+trial balance, which predated the phase, was moved onto it too.
+
+One classification does the same job for structure: `AccountGroup`, derived
+from an account's subtype with a fallback to its type, used by all three
+statements. An account with no subtype still lands somewhere on every one of
+them.
+
+### The statements
+
+- **Profit and loss** — revenue, less returns and discounts shown as a
+  deduction rather than netted away silently, less cost of sales, less
+  operating costs, plus and minus the other items. Four subtotals a reader
+  actually looks for: net revenue, gross profit, operating profit, profit for
+  the period.
+- **Balance sheet** — current and non-current on both sides, and **profit for
+  the financial year to date carried into equity**. Without that the sheet
+  would not balance on any day but the last one of a closed year, because
+  until a year closes its earnings sit in the income and expense accounts. It
+  is the profit and loss's own figure, not a re-derivation, so the two cannot
+  disagree. The bottom line is computed and shown, never asserted: a
+  difference says so loudly and points at `verify-ledger`.
+- **Cash flow** — indirect, and it reconciles by construction rather than by a
+  rule set. Because every movement nets to zero,
+  `Δcash = profit − Σ(net movement of every other non-P&L account)`, so each
+  adjustment line is simply the negative of an account's net movement. A
+  receivable that grew subtracts, a payable that grew adds, depreciation adds
+  back — none of them a special case in the code. The statement then checks
+  its own net change against the actual movement on the cash accounts.
+- **Tax summary** — the one report that does not read the ledger, because §5
+  files a return per COMPONENT with the taxable amount it was charged on, and
+  the ledger has only the money. Output tax from posted invoices and credit
+  notes; input tax from bills, vendor credits and approved expenses, claimable
+  portion only; withholding reported both ways round.
+- **Analytics** — sales by customer and by item, spend by category and by
+  vendor. Net of tax, credit notes subtracted, largest first.
+
+### Comparison, drill-through and export
+
+- Comparison is part of the period rather than an option per report: the
+  preceding span of the same length, or the same span a year earlier. An
+  account that traded only in the comparison period keeps its row — a cost
+  that stopped is news.
+- **A drill-through is carried by the row**, not assembled by the screen: each
+  row ships the account and the exact bounds its figure was summed over. A
+  balance sheet row has no lower bound at all, so a link built from the page's
+  own date filters would select a different set of lines than the total. A
+  drill-through that disagrees with its total is worse than none — it looks
+  like proof.
+- Exporting is a **format on the same URL** — `?format=csv`, `xlsx`, `print` —
+  so an exported figure cannot have come from a different query than the one
+  on screen. The tests assert the screen's own figure inside each export.
+- **`reports.export` is a separate permission from `reports.view`.** Reading a
+  statement happens inside a session; a CSV leaves with whoever asked for it.
+  A bookkeeper, an approver and a viewer may read and may not export.
+
+### The xlsx writer, and the PDF that is not one
+
+The spreadsheet is written here rather than by a library: an xlsx is a zip of
+six XML parts, and what these reports need of it is one sheet, inline strings,
+numbers carrying a display format, and a frozen header row. Money is written
+as a **number**, not a pre-formatted string — a figure that arrives as text
+cannot be summed, and summing a column is the first thing anybody does with an
+exported report.
+
+PDF is produced by printing the print view — a self-contained document with
+repeating column headings, no navigation, and `@page` margins — rather than
+rendered on the server. That meets "a printed report is legible" at the
+reader's own paper size. `docs/adr/0006` records the decision and what would
+reopen it: a month-end pack generated unattended, where there is no browser.
+
+### Two defects found and fixed
+
+Both invisible on today's figures and wrong on every historical one:
+
+1. **The trial balance included entries dated after its as-at date.** Filtering
+   `journal_entries` in the `ON` clause of a left join leaves the joined
+   `journal_lines` row in the result, and the sum is over the lines. Fixed by
+   aggregating in a derived table.
+2. **Report queries were not tenant-scoped in the application layer.** A query
+   builder is not an Eloquent model, so the global scope did not apply.
+   Row-level security still sat underneath, but a report relying on the second
+   layer alone is one connection-role change away from showing another
+   company's figures. Every report query now filters `organization_id`
+   explicitly, with a test asserting a second organisation sees zero.
+
+### Phase 7 exit criteria
+
+- [x] Every report reconciles to the ledger — the balance sheet balances, the
+      cash flow's net change equals the movement on the cash accounts, and the
+      profit in equity is the profit and loss's own figure
+- [x] Every figure drills through to the journal lines that produced it —
+      asserted by running the filter each row carries and checking it sums to
+      that row's figure
+- [x] A printed report is legible — repeating headers, no navigation, tabular
+      figures
+- [x] Comparison periods, on every report where a comparison means something
+- [x] Export to CSV and XLSX, and to PDF by printing
+
+**47 new tests** — 17 accounting, 13 HTTP, and the existing suites re-run.
+
+---
+
 ## Next
 
-1. Browser journeys through the sales, purchase, expense and banking screens
+1. **The browser harness.** Seven Pest browser tests time out in this
+   container waiting for the login page to become interactive — on this commit
+   and on the one before it. Until that is fixed the suite proves nothing, and
+   the browser journeys through sales, purchases, expenses, banking and
+   reports cannot be written on top of it.
 2. `/api/v1` — Sanctum is installed but no routes exist; Phase 1's exit
    criterion references it for tenant isolation
 3. Invoice PDF pipeline — the remaining Phase 3 deferral
-4. Phase 7 — Reports: the financial statements, and the tax return
+4. Phase 8 — Inventory: items with stock, warehouses, adjustments and
+   weighted-average valuation
