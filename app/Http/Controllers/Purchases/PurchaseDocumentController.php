@@ -10,6 +10,7 @@ use App\Domain\Accounting\Exceptions\UnbalancedJournal;
 use App\Domain\Accounting\Models\Account;
 use App\Domain\Catalog\Models\Item;
 use App\Domain\Contacts\Models\Contact;
+use App\Domain\Inventory\Exceptions\StockRefused;
 use App\Domain\Purchases\Actions\ApprovePurchaseDocument;
 use App\Domain\Purchases\Actions\ConvertPurchaseDocument;
 use App\Domain\Purchases\Actions\SavePurchaseDocument;
@@ -365,7 +366,10 @@ final class PurchaseDocumentController extends Controller
                 allowClosedPeriod: $request->boolean('post_to_closed_period')
                     && ($request->user()?->can(Permission::AccountingPostToClosedPeriod->value) ?? false),
             );
-        } catch (PurchaseDocumentRefused|PostingRefused|UnbalancedJournal $exception) {
+        } catch (PurchaseDocumentRefused|PostingRefused|UnbalancedJournal|StockRefused $exception) {
+            // Approving receives the goods, so the stock ledger gets a say —
+            // a vendor credit for more than is on the shelf, or an item that
+            // stopped being tracked while the bill sat in draft.
             return back()->with('error', $exception->getMessage());
         }
 
@@ -408,7 +412,10 @@ final class PurchaseDocumentController extends Controller
                 actor: $request->user(),
                 reason: $reason === '' ? null : $reason,
             );
-        } catch (PurchaseDocumentRefused|PostingRefused $exception) {
+        } catch (PurchaseDocumentRefused|PostingRefused|StockRefused $exception) {
+            // Voiding now unwinds the goods as well as the money, so it can
+            // be refused by the stock ledger too — when the goods have since
+            // been sold and there is nothing left to take back.
             return back()->with('error', $exception->getMessage());
         }
 

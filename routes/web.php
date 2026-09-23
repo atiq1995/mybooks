@@ -18,6 +18,10 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Expenses\ExpenseController;
 use App\Http\Controllers\Expenses\ReceiptController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\Inventory\InventoryAdjustmentController;
+use App\Http\Controllers\Inventory\StockController;
+use App\Http\Controllers\Inventory\StockTransferController;
+use App\Http\Controllers\Inventory\WarehouseController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\ModulePlaceholderController;
 use App\Http\Controllers\OnboardingController;
@@ -469,6 +473,50 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
     });
 
     /*
+     * Inventory.
+     *
+     * The paths match `navigation.ts` exactly, because the sidebar links by
+     * `match` rather than by route name — a screen at a different path would
+     * leave the menu item pointing at a 404 the moment the module slug came
+     * out of the placeholder allowlist below.
+     *
+     * Reading needs `inventory.view`; changing stock needs `inventory.adjust`,
+     * and approving an adjustment needs `accounting.post` on top, because
+     * approving it writes in the ledger.
+     */
+    Route::prefix('inventory')->name('inventory.')->group(function (): void {
+        Route::get('/items', [StockController::class, 'items'])->name('items');
+        Route::get('/items/{item}/movements', [StockController::class, 'movements'])
+            ->name('items.movements');
+        Route::get('/valuation', [StockController::class, 'valuation'])->name('valuation');
+
+        Route::get('/warehouses', [WarehouseController::class, 'index'])->name('warehouses');
+        Route::post('/warehouses', [WarehouseController::class, 'store'])->name('warehouses.store');
+        Route::patch('/warehouses/{warehouse}', [WarehouseController::class, 'update'])
+            ->name('warehouses.update');
+        Route::delete('/warehouses/{warehouse}', [WarehouseController::class, 'archive'])
+            ->name('warehouses.archive');
+
+        Route::get('/adjustments', [InventoryAdjustmentController::class, 'index'])
+            ->name('adjustments');
+        Route::post('/adjustments', [InventoryAdjustmentController::class, 'store'])
+            ->name('adjustments.store');
+        Route::get('/adjustments/{adjustment}', [InventoryAdjustmentController::class, 'show'])
+            ->name('adjustments.show');
+        Route::patch('/adjustments/{adjustment}', [InventoryAdjustmentController::class, 'update'])
+            ->name('adjustments.update');
+        Route::post('/adjustments/{adjustment}/approve', [InventoryAdjustmentController::class, 'approve'])
+            ->name('adjustments.approve');
+        Route::post('/adjustments/{adjustment}/void', [InventoryAdjustmentController::class, 'void'])
+            ->name('adjustments.void');
+
+        Route::get('/transfers', [StockTransferController::class, 'index'])->name('transfers');
+        Route::post('/transfers', [StockTransferController::class, 'store'])->name('transfers.store');
+        Route::post('/transfers/{transfer}/complete', [StockTransferController::class, 'complete'])
+            ->name('transfers.complete');
+    });
+
+    /*
      * Reports.
      *
      * Exporting is a FORMAT on the same URL rather than a route of its own —
@@ -517,7 +565,7 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
      * Each module replaces its entry here as it lands.
      */
     Route::get('/{module}/{submodule?}', ModulePlaceholderController::class)
-        ->where('module', 'inventory|contacts|documents|settings|organizations')
+        ->where('module', 'contacts|documents|settings|organizations')
         ->where('submodule', '[a-z0-9\-]+')
         ->name('module.placeholder');
 });

@@ -2,9 +2,10 @@
 
 Where the work stands. Read after `CLAUDE.md`, before doing anything.
 
-**Updated:** 2026-09-19
-**Phase:** 7 — Reports — **complete; every exit criterion met.** Phase 8
-(Inventory) is next.
+**Updated:** 2026-09-23
+**Phase:** 8 — Inventory — **complete; every exit criterion met**, after four
+rounds of adversarial review and 51 confirmed defects. Phase 9 (Portal and
+projects) is next.
 **Phase 0:** complete, verified, pushed (`085d102`).
 **Phase 1:** complete bar the browser E2E suite; the settings screen it was
 also missing landed with the outstanding items below.
@@ -14,10 +15,11 @@ is the one thing still open, and it waits on the document store.
 **Phase 4:** complete; every exit criterion met.
 **Phase 5:** complete; every exit criterion met.
 **Phase 6:** complete; every exit criterion met.
+**Phase 7:** complete; every exit criterion met.
 
-**Gates, as of this update:** 764 tests / 4,083 assertions green across Unit,
+**Gates, as of this update:** 824 tests / 4,338 assertions green across Unit,
 Feature and Accounting in parallel, plus the accounting suite re-run serially
-(287 tests / 982 assertions), as it asserts ledger-wide state. PHPStan level
+(331 tests / 1,112 assertions), as it asserts ledger-wide state. PHPStan level
 max clean; Pint clean; type coverage 97.0%; `tsc --noEmit` clean; ESLint
 (incl. `jsx-a11y`) clean; Prettier clean; production asset build succeeds.
 
@@ -1119,15 +1121,188 @@ Both invisible on today's figures and wrong on every historical one:
 
 ---
 
+## Phase 8 — Inventory
+
+### Stock is a sub-ledger, with the ledger's own three properties
+
+The exit criterion is "stock valuation matches the inventory control account
+exactly, **at every point in time**", and everything else follows from those
+last four words. A quantity column and a value column on the item would agree
+with the inventory account today and be unable to say what the shelf was worth
+on 31 March — the only question a balance sheet ever asks — and when the two
+did disagree there would be nothing to compare.
+
+So `stock_movements` is append-only (trigger-enforced, as `journal_lines` is),
+written by exactly one service, and each row carries the quantity and value
+**after** it. `stock_levels` is a projection of the movements, not the truth:
+it exists to be read cheaply and to be the row every writer locks. An as-at
+valuation is then the last movement on or before the date, per item and
+warehouse — one `DISTINCT ON` over an index, rather than a replay that gets
+slower every month the business trades. `docs/adr/0007` records the decision.
+
+### The arithmetic
+
+- **Per-warehouse weighted average.** Value travels with the goods, so a
+  transfer restates neither side and posts nothing at all.
+- **The last unit out takes the whole remaining value**, rather than
+  quantity × average. A rate rounded to four places and multiplied back leaves
+  a fraction behind, and a shelf holding nothing but 0.0002 of value is a
+  permanent difference between the stock report and the inventory account.
+  `CHECK (quantity_after > 0 OR value_after = 0)` backs it up in the database.
+- **`plan()` then `commit()`, deliberately.** The shipment's journal entry
+  needs the cost, which is not known until the average has been read; the
+  movement needs that entry's id, and the table is append-only so it cannot be
+  written and then updated. `plan()` takes the locks and computes, the caller
+  posts, `commit()` writes — both inside the caller's transaction, so the
+  locks from the first are still held during the second.
+- **`SELECT … FOR UPDATE` on the level row.** A weighted average is
+  read-modify-write; two shipments of the same item at the same instant would
+  otherwise each write a value computed from a state that no longer exists,
+  and stock and ledger would part company by the difference, silently.
+- **A receipt states a value, not a rate.** `capitalisedCost()` already
+  carries blocked tax and the line's share of any document discount; dividing
+  it into a per-unit rate and multiplying back rounds twice and leaves the
+  shelf a cent from what the ledger debited on the same transaction.
+- **Negative stock is refused twice** — in the service, and by
+  `CHECK (quantity_after >= 0 AND value_after >= 0)`, because a future caller
+  can bypass the service and cannot bypass the constraint.
+
+### Where it plugs into what already existed
+
+- **Cost of sales posts at despatch** (§4.10), inside `IssueSalesDocument`'s
+  existing transaction, under its own source purpose `('sales_document', id,
+  'cogs')`. The invoice has already used `issue`, and reusing it would have the
+  ledger refuse the cost entry as a double-post of the sale — the idempotency
+  protection working correctly on the wrong thing. A credit note restocks
+  under `'cogs_reversal'`, valued at the average of the moment goods return.
+- **A tracked item on a bill now debits inventory, not an expense.**
+  `SavePurchaseDocument` defaults a tracked line to the item's inventory
+  account; `ApprovePurchaseDocument` receives the stock. This is the change the
+  phase exists to deliver, and it is visible: purchases of tracked items no
+  longer hit the profit and loss until the goods are sold.
+- **Adjustments ask what was COUNTED**, and the difference is worked out on
+  the server at approval from what is actually on hand. A draft storing a
+  difference computed at save time would post the wrong one if anything moved
+  in between. Nothing changes until approval, which needs `accounting.post` on
+  top of `inventory.adjust` because approving writes in the ledger.
+- **Transfers post nothing**, and the screen says so — the business owns what
+  it owned before, in a different place.
+
+### `verify-ledger` proves the exit criterion
+
+Two checks were added rather than two assertions — and both had to be
+rewritten after review, because the first versions measured the wrong thing:
+
+- `stock_projection` — every level against the **sum** of the movements behind
+  it. Ordering by date reports drift on correct books as soon as anything is
+  back-dated; following `last_movement_id` fixes that but only proves the
+  level equals the row it points at, so a level that stopped being updated
+  agreed with its stale pointer and passed. The pointer is still checked
+  separately, because one aimed at another item's movement is worth naming.
+- `stock_valuation` — **the criterion itself.** For each inventory account, on
+  every date on which either side moved, the summed stock value equals that
+  account's balance. Not today's figure; every date there has ever been a
+  figure for.
+
+### Four adversarial reviews, 51 confirmed defects
+
+The phase was built, then reviewed and fixed four times over. Each round ran
+several reviewers over distinct failure modes and put every finding to three
+independent sceptics, keeping only what a majority could not refute. The
+rounds converged — 28 confirmed, then 16, then 5, then 2 — which is the shape
+you want to see before calling something done.
+
+Almost every defect had the same shape — **the ledger moved and the shelf did
+not, or they moved by different figures** — and almost none showed up in
+today's numbers, which is exactly why the criterion says *at every point in
+time*. The ones worth remembering:
+
+- **Voiding undid the money and left the goods.** A voided bill credited the
+  inventory account and left the stock on the shelf; a voided invoice left the
+  cost charged and the units gone. Both were out by the whole document, for
+  ever, from the void date on.
+- **Undo valued the goods at today's average** while the ledger reversal
+  mirrored the original amounts — out by however far the average had moved.
+- **The two halves of a void defaulted their dates separately** — the entry to
+  today, the stock to the document's issue date. The screen sends no date, so
+  this was every void a real person did: right today, wrong on every date in
+  between.
+- **A foreign-currency bill put document-currency value on the shelf.** At a
+  rate of 280 that is stock worth 1/280th of what was debited, and a cost of
+  sales to match.
+- **A vendor credit left stock at the average and credited the account at the
+  credit's price.**
+- **Anything could be costed to an inventory account** — a tracked line to an
+  expense, freight to 1300, an item's own default purchase account pointing at
+  one, or an expense claim picking "1300 — Inventory" straight off a dropdown.
+  That last one had no stock path at all behind it, so nothing in inventory
+  could ever have closed the gap. The rule now holds at both ends: an
+  inventory account refuses postings that move no stock, and an account that
+  already carries such postings refuses to become an inventory account. There
+  is no order of operations that gets a stray balance inside the invariant.
+- **`verify-ledger` itself was wrong in both directions.** It failed
+  permanently on correct books once anything was back-dated, and clearing
+  "track stock" on an item removed that account from the reconciliation
+  entirely — a checkbox that switched the invariant off.
+- **An adjustment moving value between two stock accounts posted nothing,**
+  because the two sides netted to zero.
+- Plus a deadlock between the stock lock and the journal sequence, several
+  refusals that arrived as 500s naming a constraint — including the single
+  commonest mistake in the module, invoicing ten when eight are on the shelf —
+  and a `?warehouse=` query parameter that crashed three screens.
+
+Three lessons went into `docs/adr/0007`, because none is about inventory:
+
+- **The measuring instrument needs reviewing harder than the thing measured.**
+  `verify-ledger` was wrong in both directions at once.
+- **A regression test that exercises a path production never takes proves
+  nothing.** Every void test passed an explicit date the screen does not send,
+  so they were green while the only real path was broken. The parameter is now
+  required, so the two halves cannot be defaulted apart.
+- **A rule enforced on one door is enforced on none.** The bill side refused
+  costing to an inventory account; the expense side did not, and one dropdown
+  entry was enough. A guard that runs only at save is also a guard against the
+  state of the world at save — the same check now runs again at the moment the
+  entry posts.
+
+### Screens
+
+Stock on hand, per-item movement history, as-at valuation, warehouses,
+adjustments (list and one), transfers. Seven pages, all against the same
+checklist as the rest of the application: loading, empty, no-results and error
+states; keyboard path; 1280 / tablet / 390; money right-aligned and tabular;
+destructive actions confirmed.
+
+### Phase 8 exit criteria
+
+- [x] Stock valuation matches the inventory control account exactly, at every
+      point in time — enforced by `verify-ledger`, not asserted
+- [x] Weighted-average cost per warehouse, with the last unit out taking the
+      remaining value exactly
+- [x] Cost of sales posts at despatch, once, idempotently
+- [x] Stock cannot go negative — refused in the service and by a constraint
+- [x] Adjustments need a reason and an approval; drafts move nothing
+- [x] Transfers move value with the goods and post nothing
+- [x] Undoing anything — a bill, an invoice, an adjustment — moves the value
+      the original moved, on one date shared by both halves, or refuses
+- [x] An inventory account receives exactly what the shelf receives
+
+**60 new tests** — 38 accounting, 16 HTTP, and 6 on the `verify-ledger` checks.
+The 26 in `tests/Accounting/InventoryUnwindTest.php` are one per confirmed
+defect: each fails without its fix, and most end by running `verify-ledger`
+and asserting it exits 0.
+
+---
+
 ## Next
 
 1. **The browser harness.** Seven Pest browser tests time out in this
    container waiting for the login page to become interactive — on this commit
    and on the one before it. Until that is fixed the suite proves nothing, and
-   the browser journeys through sales, purchases, expenses, banking and
-   reports cannot be written on top of it.
+   the browser journeys through sales, purchases, expenses, banking, reports
+   and inventory cannot be written on top of it.
 2. `/api/v1` — Sanctum is installed but no routes exist; Phase 1's exit
    criterion references it for tenant isolation
 3. Invoice PDF pipeline — the remaining Phase 3 deferral
-4. Phase 8 — Inventory: items with stock, warehouses, adjustments and
-   weighted-average valuation
+4. Phase 9 — Portal and projects: a customer opening an emailed invoice link,
+   viewing it and paying, without an account and without cross-tenant exposure

@@ -298,13 +298,47 @@ export const NAVIGATION: NavSection[] = [
     {
         label: 'Inventory',
         icon: Boxes,
-        match: '/inventory',
+        match: '/inventory/items',
         phase: 8,
+        route: 'inventory.items',
         items: [
-            { label: 'Items', match: '/inventory/items', phase: 3 },
-            { label: 'Warehouses', match: '/inventory/warehouses', phase: 8 },
-            { label: 'Adjustments', match: '/inventory/adjustments', phase: 8 },
-            { label: 'Valuation', match: '/inventory/valuation', phase: 8 },
+            /*
+             * "Items" here is the STOCK view — what is on the shelf and what
+             * it is worth. The catalogue lives under Sales, because that is
+             * where somebody goes to change a price. Two screens about items
+             * is the right answer: one is about selling them and one is about
+             * having them.
+             */
+            {
+                label: 'Stock on hand',
+                route: 'inventory.items',
+                match: '/inventory/items',
+                phase: 8,
+            },
+            {
+                label: 'Warehouses',
+                route: 'inventory.warehouses',
+                match: '/inventory/warehouses',
+                phase: 8,
+            },
+            {
+                label: 'Adjustments',
+                route: 'inventory.adjustments',
+                match: '/inventory/adjustments',
+                phase: 8,
+            },
+            {
+                label: 'Transfers',
+                route: 'inventory.transfers',
+                match: '/inventory/transfers',
+                phase: 8,
+            },
+            {
+                label: 'Valuation',
+                route: 'inventory.valuation',
+                match: '/inventory/valuation',
+                phase: 8,
+            },
         ],
     },
     {
@@ -380,7 +414,7 @@ export const NAVIGATION: NavSection[] = [
  *
  * Raise this as each phase lands.
  */
-export const CURRENT_PHASE = 7;
+export const CURRENT_PHASE = 8;
 
 export function isAvailable(phase: number): boolean {
     return phase <= CURRENT_PHASE;

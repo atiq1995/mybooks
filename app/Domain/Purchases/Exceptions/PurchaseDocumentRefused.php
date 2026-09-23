@@ -63,6 +63,23 @@ final class PurchaseDocumentRefused extends RuntimeException
         );
     }
 
+    /**
+     * Something that is not stock was costed to a stock account.
+     *
+     * The inventory account has to equal what is on the shelf, on every date
+     * — so only a line that actually puts goods on a shelf may debit it.
+     */
+    public static function notAnInventoryPurchase(string $account): self
+    {
+        return new self(
+            "{$account} is an inventory account, so only a line for a stock-tracked item can ".
+            'be costed to it. Anything else would add value the stock report cannot account '.
+            'for, and the balance sheet and the stock valuation would stop agreeing. Put '.
+            'delivery and handling on the item line itself, where they become part of what '.
+            'the goods cost, or choose an expense account.'
+        );
+    }
+
     public static function contactUnusable(string $name): self
     {
         return new self(

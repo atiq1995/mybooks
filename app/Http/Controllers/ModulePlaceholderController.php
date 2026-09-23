@@ -28,11 +28,11 @@ final class ModulePlaceholderController extends Controller
     /**
      * Which roadmap phase delivers each area.
      *
-     * `sections` is the list of submodule slugs a module may make a promise
-     * about. An allowlist rather than a wildcard, on purpose — see
-     * __invoke().
+     * No module left here promises anything BELOW itself any more — every one
+     * that did has landed. `sections` therefore stayed only as long as one of
+     * them named a submodule; see __invoke() for what replaced it.
      *
-     * @var array<string, array{phase: int, title: string, summary: string, sections: list<string>}>
+     * @var array<string, array{phase: int, title: string, summary: string}>
      */
     private const array MODULES = [
         /*
@@ -71,23 +71,21 @@ final class ModulePlaceholderController extends Controller
          * module has no entry here. `/accounting/anything-else` is now a 404
          * rather than a page announcing something that already exists.
          */
-        'inventory' => [
-            'phase' => 8,
-            'title' => 'Inventory',
-            'summary' => 'Items with stock tracking, warehouses, adjustments and weighted-average valuation.',
-            'sections' => ['items', 'warehouses', 'adjustments', 'valuation'],
-        ],
+        /*
+         * Inventory has landed — items with stock, warehouses, adjustments,
+         * transfers and valuation — so it has no entry here, and
+         * `/inventory/anything-else` is a 404 rather than a page announcing
+         * something that already works.
+         */
         'contacts' => [
             'phase' => 3,
             'title' => 'Contacts',
             'summary' => 'Customers and vendors in one place, with their transactions, balances and statements.',
-            'sections' => [],
         ],
         'documents' => [
             'phase' => 9,
             'title' => 'Documents',
             'summary' => 'Attachments and files, stored in object storage and linked to the records they belong to.',
-            'sections' => [],
         ],
         'settings' => [
             'phase' => 1,
@@ -95,13 +93,11 @@ final class ModulePlaceholderController extends Controller
             'summary' => 'Organisation, users, roles, taxes, currencies, templates, automation and security.',
             // Every settings screen that exists has its own route, and those
             // are registered before this one.
-            'sections' => [],
         ],
         'organizations' => [
             'phase' => 1,
             'title' => 'Organisations',
             'summary' => 'Creating and switching between organisations, and inviting people into them.',
-            'sections' => [],
         ],
     ];
 
@@ -110,16 +106,21 @@ final class ModulePlaceholderController extends Controller
         $definition = self::MODULES[$module] ?? abort(404);
 
         /*
-         * An unknown section is not found — it is not "arriving in Phase 4".
+         * A SECTION of an unbuilt module is not found — it is not "arriving in
+         * Phase 9".
          *
          * This page makes a promise, and a promise has to be about something
          * somebody intends to build. Matching any segment would mean every
-         * typo under a live module answers 200 and invents a feature:
-         * /sales/widgets would announce Recurring Invoices, and a link left
-         * behind by a renamed screen would read as a roadmap entry rather
-         * than the dead link it actually is.
+         * typo under a module answers 200 and invents a feature, and a link
+         * left behind by a renamed screen would read as a roadmap entry
+         * rather than the dead link it actually is.
+         *
+         * There used to be a per-module allowlist of section slugs. Every
+         * module that named one has since landed, so the list is empty
+         * everywhere and the rule collapses to this: the module page itself,
+         * and nothing under it.
          */
-        if ($submodule !== null && ! in_array($submodule, $definition['sections'], true)) {
+        if ($submodule !== null) {
             abort(404);
         }
 
@@ -127,9 +128,7 @@ final class ModulePlaceholderController extends Controller
             'module' => $definition['title'],
             'phase' => $definition['phase'],
             'summary' => $definition['summary'],
-            'section' => $submodule === null
-                ? null
-                : ucwords(str_replace('-', ' ', $submodule)),
+            'section' => null,
         ]);
     }
 }

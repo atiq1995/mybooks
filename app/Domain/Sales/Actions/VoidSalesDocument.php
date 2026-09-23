@@ -8,6 +8,7 @@ use App\Domain\Access\Enums\Permission;
 use App\Domain\Accounting\Actions\ReverseJournalEntry;
 use App\Domain\Accounting\Models\JournalEntry;
 use App\Domain\Audit\AuditRecorder;
+use App\Domain\Inventory\Actions\ShipSalesDocument;
 use App\Domain\Sales\Enums\SalesDocumentStatus;
 use App\Domain\Sales\Exceptions\SalesDocumentRefused;
 use App\Domain\Sales\Models\SalesDocument;
@@ -35,6 +36,7 @@ final readonly class VoidSalesDocument
 {
     public function __construct(
         private ReverseJournalEntry $reverseJournalEntry,
+        private ShipSalesDocument $shipSalesDocument,
         private AuditRecorder $audit,
     ) {}
 
@@ -63,6 +65,17 @@ final readonly class VoidSalesDocument
             );
         }
 
+        /*
+         * One date, resolved once, used by the sale, the cost and the goods.
+         *
+         * Left null, each half defaulted for itself and they defaulted
+         * differently — the entry reversals to today, the stock reversal to
+         * the document's issue date — so a void done from the screen, which
+         * sends no date, reversed the revenue in one period and the goods in
+         * another.
+         */
+        $date ??= Carbon::now();
+
         return DB::transaction(function () use ($document, $actor, $reason, $date): SalesDocument {
             $reversalId = null;
 
@@ -83,6 +96,24 @@ final readonly class VoidSalesDocument
 
                 $reversalId = $reversal->getKey();
             }
+
+            /*
+             * The goods, which are a separate fact from the money.
+             *
+             * An invoice that despatched stock posted a second entry for the
+             * cost and took units off the shelf. Reversing only the sale left
+             * the cost charged and the shelf short — the inventory account
+             * and the stock report disagreeing by the cost of the goods,
+             * permanently, from this date on. This puts both back at the cost
+             * they left at, and refuses the void outright if those goods have
+             * since been sold on.
+             */
+            $this->shipSalesDocument->unship(
+                document: $document,
+                voidedOn: $date,
+                actor: $actor,
+                reason: $reason,
+            );
 
             $document->forceFill([
                 'status' => SalesDocumentStatus::Void,

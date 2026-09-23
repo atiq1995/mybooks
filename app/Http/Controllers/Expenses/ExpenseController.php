@@ -20,6 +20,7 @@ use App\Domain\Expenses\Exceptions\ExpenseRefused;
 use App\Domain\Expenses\Models\Expense;
 use App\Domain\Expenses\Models\ExpenseLine;
 use App\Domain\Expenses\Models\MileageRate;
+use App\Domain\Inventory\Services\InventoryAccounts;
 use App\Domain\Organizations\Models\OrganizationMembership;
 use App\Domain\Tax\Models\Tax;
 use App\Http\Controllers\Controller;
@@ -721,6 +722,14 @@ final class ExpenseController extends Controller
             Account::query()
                 ->postable()
                 ->whereIn('type', ['expense', 'asset'])
+                /*
+                 * Never an inventory account. The account has to equal what
+                 * is on the shelf on every date, and an expense puts nothing
+                 * on a shelf — so offering it here is offering a way to break
+                 * that permanently. `SaveExpense` refuses it as well; this
+                 * just means nobody has to meet the refusal.
+                 */
+                ->whereNotIn('id', app(InventoryAccounts::class)->all())
                 ->orderBy('code')
                 ->get()
                 ->map(static fn (Account $account): array => [

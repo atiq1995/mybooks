@@ -7,6 +7,7 @@ namespace App\Domain\Purchases\Actions;
 use App\Domain\Accounting\Actions\ReverseJournalEntry;
 use App\Domain\Accounting\Models\JournalEntry;
 use App\Domain\Audit\AuditRecorder;
+use App\Domain\Inventory\Actions\ReceiveStockForBill;
 use App\Domain\Purchases\Enums\PurchaseDocumentStatus;
 use App\Domain\Purchases\Exceptions\PurchaseDocumentRefused;
 use App\Domain\Purchases\Models\PurchaseDocument;
@@ -32,6 +33,7 @@ final readonly class VoidPurchaseDocument
 {
     public function __construct(
         private ReverseJournalEntry $reverseJournalEntry,
+        private ReceiveStockForBill $receiveStockForBill,
         private AuditRecorder $audit,
     ) {}
 
@@ -63,6 +65,20 @@ final readonly class VoidPurchaseDocument
             );
         }
 
+        /*
+         * One date, resolved once, used by both halves.
+         *
+         * This was a defect rather than a tidiness: the money and the goods
+         * each defaulted a null date for themselves, and they defaulted
+         * differently — the reversal to today, the stock reversal to the
+         * document's own issue date. Since the screen never sends a date,
+         * that was every void done by a real person. The two sides then
+         * landed weeks apart, and the inventory account carried the goods
+         * for the whole window in between while the stock report said they
+         * were gone.
+         */
+        $date ??= Carbon::now();
+
         return DB::transaction(function () use (
             $document,
             $actor,
@@ -85,8 +101,26 @@ final readonly class VoidPurchaseDocument
                     reason: $reason ?? "Void of {$document->number}",
                 );
 
-                $reversalId = $reversal->getKey();
+                $reversalId = $reversal->id;
             }
+
+            /*
+             * The goods, which are a separate fact from the money.
+             *
+             * The reversal above credits the inventory account by what the
+             * bill debited. Without taking the stock back off the shelf, the
+             * control account goes to nil while the stock report still shows
+             * the goods — I10 out by the whole bill, from this date on, with
+             * nothing to point at. Reversed at the value the receipt carried,
+             * so both halves move by one figure; refused if those goods have
+             * since been sold, because then they are not there to give back.
+             */
+            $this->receiveStockForBill->unreceive(
+                document: $document,
+                voidedOn: $date,
+                actor: $actor,
+                reversalEntryId: $reversalId,
+            );
 
             $document->forceFill([
                 'status' => PurchaseDocumentStatus::Void,

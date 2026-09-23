@@ -104,16 +104,27 @@ it('returns 404, not 403, when switching to an organisation the user is not in',
 it('renders a designed placeholder for modules that are not built yet', function (): void {
     actingAsMember(Organization::factory()->create());
 
-    // Inventory has not landed, so it still explains itself rather than
+    // Documents has not landed, so it still explains itself rather than
     // 404ing — the information architecture is real from day one.
-    $this->get('/inventory/warehouses')
+    $this->get('/documents')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('ModulePlaceholder')
-            ->where('module', 'Inventory')
-            ->where('section', 'Warehouses')
-            ->where('phase', 8),
+            ->where('module', 'Documents')
+            ->where('phase', 9),
         );
+
+    // Inventory has landed, so its screens are real.
+    $this->get('/inventory/warehouses')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->component('Inventory/Warehouses'));
+
+    $this->get('/inventory/valuation')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->component('Inventory/Valuation'));
+
+    // And nothing else under it claims to be arriving any more.
+    $this->get('/inventory/something-else')->assertNotFound();
 
     // Banking has landed, so its screens are real.
     $this->get('/banking/reconciliation')

@@ -12,6 +12,7 @@ use App\Domain\Accounting\Exceptions\PostingRefused;
 use App\Domain\Accounting\Models\Account;
 use App\Domain\Audit\AuditRecorder;
 use App\Domain\Contacts\Models\Contact;
+use App\Domain\Inventory\Actions\ReceiveStockForBill;
 use App\Domain\Purchases\Data\BillPosting;
 use App\Domain\Purchases\Data\VendorCreditPosting;
 use App\Domain\Purchases\Enums\PurchaseDocumentStatus;
@@ -53,6 +54,7 @@ final readonly class ApprovePurchaseDocument
     public function __construct(
         private TenantContext $tenant,
         private PostJournalEntry $postJournalEntry,
+        private ReceiveStockForBill $receiveStock,
         private AuditRecorder $audit,
     ) {}
 
@@ -133,6 +135,27 @@ final readonly class ApprovePurchaseDocument
 
             if ($document->type === PurchaseDocumentType::VendorCredit) {
                 $this->applyCreditToBill($document);
+            }
+
+            /*
+             * The goods themselves.
+             *
+             * The entry above has already debited the inventory account for
+             * every tracked line — that is what `debit_account_id` defaults
+             * to on a tracked item — so this records the same value in the
+             * stock ledger and nothing more. Both halves of I10 come from one
+             * figure, which is why they cannot disagree.
+             *
+             * Dated at the POSTING date rather than the document date, so a
+             * back-dated bill puts its stock where its ledger entry is:
+             * valuation at a date is meaningless if the two drift apart.
+             */
+            if ($document->type->posts()) {
+                $this->receiveStock->handle(
+                    document: $document->refresh(),
+                    actor: $actor,
+                    receivedOn: $postingDate,
+                );
             }
 
             $this->audit->record(

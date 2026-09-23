@@ -10,6 +10,7 @@ use App\Domain\Accounting\Services\DocumentNumberGenerator;
 use App\Domain\Audit\AuditRecorder;
 use App\Domain\Catalog\Models\Item;
 use App\Domain\Contacts\Models\Contact;
+use App\Domain\Inventory\Services\InventoryAccounts;
 use App\Domain\Purchases\Enums\PurchaseDocumentStatus;
 use App\Domain\Purchases\Enums\PurchaseDocumentType;
 use App\Domain\Purchases\Exceptions\PurchaseDocumentRefused;
@@ -46,6 +47,7 @@ final readonly class SavePurchaseDocument
         private TenantContext $tenant,
         private DocumentNumberGenerator $numbers,
         private PurchaseDocumentCalculator $calculator,
+        private InventoryAccounts $inventoryAccounts,
         private AuditRecorder $audit,
     ) {}
 
@@ -205,6 +207,8 @@ final readonly class SavePurchaseDocument
      */
     private function replaceLines(PurchaseDocument $document, array $lines): void
     {
+        $this->refuseUntrackedCostsOnAStockAccount($lines);
+
         PurchaseDocumentLine::query()
             ->where('purchase_document_id', $document->id)
             ->delete();
@@ -241,7 +245,35 @@ final readonly class SavePurchaseDocument
                 'discount_type' => self::optionalText($input, 'discount_type'),
                 'discount_value' => self::optionalText($input, 'discount_value'),
                 'tax_id' => self::optionalText($input, 'tax_id') ?? $item?->purchase_tax_id,
-                'debit_account_id' => self::optionalText($input, 'debit_account_id')
+                /*
+                 * Where the cost lands.
+                 *
+                 * A STOCK-TRACKED item goes to its inventory account, not to
+                 * an expense: §4.6's "5xxx Expense **or** 1300 Inventory".
+                 * Buying stock is not a cost yet — it becomes one when the
+                 * goods are despatched, which is what §4.10's cost of sales
+                 * entry is for. Sending it to an expense would charge the
+                 * whole purchase against the month it was bought in and leave
+                 * the inventory account permanently understated.
+                 *
+                 * For a tracked item this is NOT a default the user can
+                 * override, and that is the one place this action overrules
+                 * what was typed. I10 reconciles an account against the stock
+                 * attributed to it; a tracked line posted to an expense
+                 * account still puts goods on the shelf, so the stock report
+                 * carries value the balance sheet never received and the two
+                 * can never be made to agree again. The line is refused
+                 * instead — see {@see self::assertTrackedLinesPostToStock()}.
+                 *
+                 * Otherwise what the user typed wins, and the decision is
+                 * frozen on the line at save time: a line is a permanent copy
+                 * of what was decided, and a bill saved before an item was
+                 * tracked must not change account under it.
+                 */
+                'debit_account_id' => ($item !== null && $item->is_tracked
+                        ? $item->inventory_account_id
+                        : null)
+                    ?? self::optionalText($input, 'debit_account_id')
                     ?? ($item === null ? null : $item->purchase_account_id)
                     ?? $defaultExpense,
                 /*
@@ -296,6 +328,62 @@ final readonly class SavePurchaseDocument
      * account: an organisation has many expense accounts, and naming one of
      * them "the" expense account would be wrong for nearly every purchase.
      */
+    /**
+     * Nothing but tracked stock may be costed to an inventory account.
+     *
+     * The other half of the rule above, and it exists for the same reason.
+     * I10 reconciles an inventory account against the stock attributed to it,
+     * so that account has to receive exactly what the shelf received and
+     * nothing else. A freight line or a consultancy fee coded to 1300 debits
+     * the control account without putting anything on any shelf, and from
+     * that moment the invariant is out by the amount — not because stock is
+     * wrong, but because something that is not stock is being counted as it.
+     *
+     * Delivery charges genuinely belonging to the goods are capitalised by
+     * being part of the item's own line, which is what `capitalisedCost()`
+     * exists for.
+     *
+     * @param  list<array<string, mixed>>  $lines
+     */
+    private function refuseUntrackedCostsOnAStockAccount(array $lines): void
+    {
+        $defaultExpense = $this->defaultExpenseAccountId();
+
+        foreach ($lines as $input) {
+            $item = isset($input['item_id']) && is_string($input['item_id'])
+                ? Item::query()->find($input['item_id'])
+                : null;
+
+            if ($item !== null && $item->is_tracked) {
+                continue;
+            }
+
+            /*
+             * The account the line will actually be SAVED with, resolved the
+             * same way {@see self::replaceLines()} resolves it.
+             *
+             * Checking only what was typed missed the commonest route to the
+             * problem: an item with no account on the line falls back to its
+             * own `purchase_account_id`, and that field legitimately accepts
+             * an asset account. A carriage item pointed at 1300 therefore
+             * sailed past a guard that was looking at a null.
+             */
+            $accountId = self::optionalText($input, 'debit_account_id')
+                ?? ($item === null ? null : $item->purchase_account_id)
+                ?? $defaultExpense;
+
+            if (! $this->inventoryAccounts->has($accountId)) {
+                continue;
+            }
+
+            $account = Account::query()->find($accountId);
+
+            throw PurchaseDocumentRefused::notAnInventoryPurchase(
+                $account === null ? 'That account' : $account->code.' '.$account->name,
+            );
+        }
+    }
+
     private function defaultExpenseAccountId(): string
     {
         $account = Account::query()

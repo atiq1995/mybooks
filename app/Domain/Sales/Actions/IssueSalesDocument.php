@@ -13,6 +13,7 @@ use App\Domain\Accounting\Exceptions\PostingRefused;
 use App\Domain\Accounting\Models\Account;
 use App\Domain\Audit\AuditRecorder;
 use App\Domain\Contacts\Models\Contact;
+use App\Domain\Inventory\Actions\ShipSalesDocument;
 use App\Domain\Sales\Data\CreditNotePosting;
 use App\Domain\Sales\Data\InvoicePosting;
 use App\Domain\Sales\Enums\SalesDocumentStatus;
@@ -52,6 +53,7 @@ final readonly class IssueSalesDocument
     public function __construct(
         private TenantContext $tenant,
         private PostJournalEntry $postJournalEntry,
+        private ShipSalesDocument $shipSalesDocument,
         private AuditRecorder $audit,
     ) {}
 
@@ -126,6 +128,30 @@ final readonly class IssueSalesDocument
 
             if ($document->type === SalesDocumentType::CreditNote) {
                 $this->applyCreditToInvoice($document);
+            }
+
+            /*
+             * Goods leave the shelf, and their cost leaves with them.
+             *
+             * §4.10 dates cost of sales at SHIPMENT rather than at the
+             * invoice, and the two are usually — not always — the same day.
+             * So issuing despatches by default, at the same date the sale
+             * posted, and {@see ShipSalesDocument} takes its own date for the
+             * times they differ. Anything already despatched is left alone:
+             * charging the cost twice is the one mistake here that no later
+             * document can put right.
+             *
+             * Inside this transaction on purpose. The document, its entry,
+             * its stock movements and its cost entry commit together or none
+             * of them does.
+             */
+            if ($document->type->posts() && ! $this->shipSalesDocument->hasShipped($document)) {
+                $this->shipSalesDocument->handle(
+                    document: $document,
+                    actor: $actor,
+                    shippedOn: $postingDate,
+                    allowClosedPeriod: $allowClosedPeriod,
+                );
             }
 
             $this->audit->record(

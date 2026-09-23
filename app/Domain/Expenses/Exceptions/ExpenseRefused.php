@@ -15,6 +15,24 @@ use RuntimeException;
  */
 final class ExpenseRefused extends RuntimeException
 {
+    /**
+     * An expense was costed to an inventory account.
+     *
+     * Inventory accounts have to equal what is on the shelf, on every date —
+     * and an expense never puts anything on a shelf.
+     *
+     * @see ACCOUNTING_RULES.md I10
+     */
+    public static function notAnInventoryPurchase(string $account): self
+    {
+        return new self(
+            "{$account} is an inventory account, and an expense cannot be costed to one. It "
+            .'would add value the stock report cannot account for, and the balance sheet and '
+            .'the stock valuation would stop agreeing from that day on. Stock is bought on a '
+            .'bill, where the goods are received; choose an expense account instead.'
+        );
+    }
+
     public static function notEditable(string $number, string $status): self
     {
         return new self(

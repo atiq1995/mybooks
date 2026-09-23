@@ -17,6 +17,7 @@ use App\Domain\Expenses\Exceptions\ExpenseRefused;
 use App\Domain\Expenses\Models\Expense;
 use App\Domain\Expenses\Models\ExpenseLine;
 use App\Domain\Expenses\Models\ExpenseLineTax;
+use App\Domain\Inventory\Services\InventoryAccounts;
 use App\Models\User;
 use App\Support\Tenancy\TenantContext;
 use Brick\Math\BigDecimal;
@@ -45,6 +46,7 @@ final readonly class ApproveExpense
     public function __construct(
         private TenantContext $tenant,
         private PostJournalEntry $postJournalEntry,
+        private InventoryAccounts $inventoryAccounts,
         private AuditRecorder $audit,
     ) {}
 
@@ -79,6 +81,34 @@ final readonly class ApproveExpense
 
         if (BigDecimal::of($expense->total)->isZero()) {
             throw ExpenseRefused::nothingToApprove($expense->number);
+        }
+
+        /*
+         * Checked again HERE, not only when the expense was saved.
+         *
+         * Saving freezes an account; approving is what posts it, and the two
+         * can be weeks and a submission apart. In between, somebody can create
+         * a tracked item pointing at the very account this expense was coded
+         * to — and an account that was an ordinary asset at save time is an
+         * inventory control account by the time the entry lands. The expense
+         * would then debit it with no stock behind it, permanently, and the
+         * claimant could not even fix it: a submitted expense is not editable.
+         *
+         * The purchase side has this shape already — `ReceiveStockForBill`
+         * re-derives the stock accounts at approval and either moves the goods
+         * or refuses the approval outright. A guard that only runs at save is
+         * a guard against the state of the world at save.
+         */
+        foreach ($expense->lines()->get() as $line) {
+            if (! $this->inventoryAccounts->has($line->debit_account_id)) {
+                continue;
+            }
+
+            $account = Account::query()->find($line->debit_account_id);
+
+            throw ExpenseRefused::notAnInventoryPurchase(
+                $account === null ? 'That account' : $account->code.' '.$account->name,
+            );
         }
 
         return DB::transaction(function () use ($expense, $actor, $allowClosedPeriod): Expense {

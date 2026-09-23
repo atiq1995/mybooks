@@ -8,11 +8,15 @@ use App\Domain\Access\Enums\Permission;
 use App\Domain\Accounting\Models\Account;
 use App\Domain\Audit\AuditRecorder;
 use App\Domain\Catalog\Enums\ItemKind;
+use App\Domain\Catalog\Exceptions\ItemRefused;
 use App\Domain\Catalog\Models\Item;
+use App\Domain\Inventory\Models\StockMovement;
+use App\Domain\Purchases\Models\PurchaseDocumentLine;
 use App\Domain\Tax\Models\Tax;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Sales\StoreItemRequest;
 use App\Support\Tenancy\TenantContext;
+use Brick\Math\BigDecimal;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -114,23 +118,30 @@ final class ItemController extends Controller
     {
         $this->authorize(Permission::InventoryManageItems->value);
 
-        $item = DB::transaction(function () use ($request): Item {
-            $item = Item::query()->create($request->validated());
+        try {
+            $item = DB::transaction(function () use ($request): Item {
+                $item = Item::query()->create($request->validated());
 
-            $this->audit->record(
-                action: 'catalog.item_created',
-                subject: $item,
-                description: "Created {$item->kind->label()} {$item->name}",
-                new: [
-                    'name' => $item->name,
-                    'sku' => $item->sku,
-                    'sale_price' => $item->sale_price,
-                ],
-                actor: $request->user(),
-            );
+                $this->refuseADirtyInventoryAccount($item);
 
-            return $item;
-        });
+                $this->audit->record(
+                    action: 'catalog.item_created',
+                    subject: $item,
+                    description: "Created {$item->kind->label()} {$item->name}",
+                    new: [
+                        'name' => $item->name,
+                        'sku' => $item->sku,
+                        'sale_price' => $item->sale_price,
+                    ],
+                    actor: $request->user(),
+                );
+
+                return $item;
+            });
+        } catch (ItemRefused $exception) {
+            return back()->withErrors(['inventory_account_id' => $exception->getMessage()])
+                ->withInput();
+        }
 
         return back()->with('success', "{$item->name} added.");
     }
@@ -141,22 +152,52 @@ final class ItemController extends Controller
 
         $this->guardBelongsToActiveOrganization($item);
 
-        DB::transaction(function () use ($item, $request): void {
-            $item->fill($request->validated())->save();
+        try {
+            DB::transaction(function () use ($item, $request): void {
+                $item->fill($request->validated())->save();
 
-            if ($item->wasChanged()) {
                 /*
-                 * Audited, but it restates nothing already issued: every
-                 * document line copied the price it was created with.
+                 * Stock accounting is not a property of the item master once
+                 * the item has moved.
+                 *
+                 * `is_tracked` and `inventory_account_id` are what tie a
+                 * movement to the account its value went to. Changing either
+                 * after stock has moved splits the history: the old account
+                 * keeps the value it was debited with and loses the stock
+                 * behind it, while the new one receives stock it was never
+                 * debited for. Untick tracking and the account drops out of
+                 * the reconciliation altogether, which is a checkbox
+                 * switching off an invariant.
+                 *
+                 * Refused inside the transaction, so the save goes with it.
+                 * Moving stock between accounts is a decision that needs a
+                 * journal entry behind it, not a form field.
                  */
-                $this->audit->recordChange(
-                    action: 'catalog.item_updated',
-                    subject: $item,
-                    description: "Updated {$item->name}",
-                    actor: $request->user(),
-                );
-            }
-        });
+                if ($item->wasChanged(['is_tracked', 'inventory_account_id'])
+                    && $this->stockAccountingIsCommitted($item)) {
+                    throw ItemRefused::stockHasAlreadyMoved($item->name);
+                }
+
+                if ($item->wasChanged('inventory_account_id')) {
+                    $this->refuseADirtyInventoryAccount($item);
+                }
+
+                if ($item->wasChanged()) {
+                    /*
+                     * Audited, but it restates nothing already issued: every
+                     * document line copied the price it was created with.
+                     */
+                    $this->audit->recordChange(
+                        action: 'catalog.item_updated',
+                        subject: $item,
+                        description: "Updated {$item->name}",
+                        actor: $request->user(),
+                    );
+                }
+            });
+        } catch (ItemRefused $exception) {
+            return back()->withErrors(['is_tracked' => $exception->getMessage()])->withInput();
+        }
 
         return back()->with('success', "{$item->name} updated.");
     }
@@ -192,6 +233,73 @@ final class ItemController extends Controller
         $item->forceFill(['archived_at' => null, 'is_active' => true])->save();
 
         return back()->with('success', "{$item->name} restored.");
+    }
+
+    /**
+     * An account only becomes an inventory account if it is clean.
+     *
+     * Naming an account here is what puts it inside I10: from that moment
+     * `verify-ledger` reconciles its balance against the stock attributed to
+     * it, on every date — **including everything posted to it before**, which
+     * nothing in inventory can explain and no inventory document can correct.
+     * An account carrying an unrelated balance would therefore start life as
+     * a breach that can only be closed by a hand-written journal.
+     *
+     * This is the other end of the rule that stops an expense being costed to
+     * an inventory account. That one refuses new postings to an account that
+     * is already inventory; this one refuses an account becoming inventory
+     * when it already has postings. Between them there is no order of
+     * operations that gets a stray balance inside the invariant.
+     */
+    private function refuseADirtyInventoryAccount(Item $item): void
+    {
+        $accountId = $item->inventory_account_id;
+
+        if ($accountId === null) {
+            return;
+        }
+
+        $account = Account::query()->find($accountId);
+
+        if ($account === null) {
+            return;
+        }
+
+        $stock = StockMovement::query()
+            ->where('inventory_account_id', $accountId)
+            ->sum('value');
+
+        $balance = BigDecimal::of((string) $account->balance())
+            ->minus(BigDecimal::of((string) $stock));
+
+        if ($balance->isZero()) {
+            return;
+        }
+
+        throw ItemRefused::accountAlreadyHasOtherPostings(
+            $account->code.' '.$account->name,
+            (string) $balance,
+        );
+    }
+
+    /**
+     * Whether anything has already committed to this item's stock accounting.
+     *
+     * Movements are the obvious case. Purchase lines are the subtle one, and
+     * the one that made "no movements yet" too weak a test: a bill line
+     * freezes its account when the bill is SAVED, and the entry posted at
+     * approval uses that frozen account. So a draft bill is already a
+     * commitment — change the item underneath it and the entry debits one
+     * account while the goods land against another, which is precisely the
+     * split this guard exists to prevent.
+     *
+     * Sales lines do not count: a despatch builds its entry from the same
+     * live account the movement records, so the two cannot come apart.
+     */
+    private function stockAccountingIsCommitted(Item $item): bool
+    {
+        return StockMovement::query()->where('item_id', $item->getKey())->exists()
+            || PurchaseDocumentLine::query()->where('item_id', $item->getKey())->exists();
     }
 
     /**

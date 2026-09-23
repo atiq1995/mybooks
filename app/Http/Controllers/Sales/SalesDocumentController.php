@@ -9,6 +9,7 @@ use App\Domain\Accounting\Exceptions\PostingRefused;
 use App\Domain\Accounting\Exceptions\UnbalancedJournal;
 use App\Domain\Catalog\Models\Item;
 use App\Domain\Contacts\Models\Contact;
+use App\Domain\Inventory\Exceptions\StockRefused;
 use App\Domain\Sales\Actions\ConvertSalesDocument;
 use App\Domain\Sales\Actions\IssueSalesDocument;
 use App\Domain\Sales\Actions\SaveSalesDocument;
@@ -355,7 +356,13 @@ final class SalesDocumentController extends Controller
                 allowClosedPeriod: $request->boolean('post_to_closed_period')
                     && ($request->user()?->can(Permission::AccountingPostToClosedPeriod->value) ?? false),
             );
-        } catch (SalesDocumentRefused|PostingRefused|UnbalancedJournal $exception) {
+        } catch (SalesDocumentRefused|PostingRefused|UnbalancedJournal|StockRefused $exception) {
+            /*
+             * Issuing despatches the goods, so the stock ledger gets a say —
+             * and the commonest mistake in the whole module lands here:
+             * invoicing ten when eight are on the shelf. That deserves the
+             * sentence StockRefused writes, not a 500.
+             */
             return back()->with('error', $exception->getMessage());
         }
 
@@ -396,7 +403,10 @@ final class SalesDocumentController extends Controller
                 actor: $request->user(),
                 reason: $reason === '' ? null : $reason,
             );
-        } catch (SalesDocumentRefused|PostingRefused $exception) {
+        } catch (SalesDocumentRefused|PostingRefused|StockRefused $exception) {
+            // Voiding now puts the goods back as well as reversing the sale,
+            // so the stock ledger can refuse it — a voided credit note whose
+            // restocked goods have since been sold again, for instance.
             return back()->with('error', $exception->getMessage());
         }
 

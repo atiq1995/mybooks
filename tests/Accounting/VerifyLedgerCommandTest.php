@@ -7,6 +7,12 @@ use App\Domain\Accounting\Data\JournalDraft;
 use App\Domain\Accounting\Data\JournalLineDraft;
 use App\Domain\Accounting\Enums\SystemAccount;
 use App\Domain\Accounting\Models\Account;
+use App\Domain\Catalog\Enums\ItemKind;
+use App\Domain\Catalog\Models\Item;
+use App\Domain\Inventory\Actions\ApproveInventoryAdjustment;
+use App\Domain\Inventory\Actions\SaveInventoryAdjustment;
+use App\Domain\Inventory\Models\StockLevel;
+use App\Domain\Inventory\Services\WarehouseResolver;
 use App\Domain\Organizations\Models\Organization;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -211,3 +217,191 @@ it('can verify a single organisation by slug', function (): void {
     $this->artisan('my-books:verify-ledger', ['--organization' => $this->organization->slug])
         ->assertExitCode(1);
 });
+
+/*
+|---------------------------------------------------------------------------
+| I10 — stock valuation equals the inventory control account
+|---------------------------------------------------------------------------
+|
+| Phase 8's exit criterion, and the checks that hold it up. Both halves are
+| here, because they fail in different ways: the projection can drift from the
+| movements behind it, and the movements can drift from the ledger.
+*/
+
+it('passes on stock bought and sold entirely through the domain', function (): void {
+    [$item] = trackedItemWithStock();
+
+    $this->artisan('my-books:verify-ledger')
+        ->expectsOutputToContain('Every invariant holds')
+        ->assertExitCode(0);
+
+    expect($item->is_tracked)->toBeTrue();
+});
+
+it('catches a stock level that no longer agrees with its movements', function (): void {
+    /*
+     * `stock_levels` is a cache of the last movement's running balance, kept
+     * because it is the row every writer locks. This is what stops the cache
+     * being a second source of truth.
+     */
+    [, $level] = trackedItemWithStock();
+
+    DB::table('stock_levels')->where('id', $level->id)->update(['quantity' => '999']);
+
+    $this->artisan('my-books:verify-ledger')
+        ->expectsOutputToContain('the movements say')
+        ->assertExitCode(1);
+});
+
+it('catches movements with no level row behind them at all', function (): void {
+    /*
+     * The shape a half-restored backup leaves: `stock_movements` from one
+     * dump, `stock_levels` from an earlier one.
+     *
+     * A check anchored on `stock_levels` can only ever ask "is this level
+     * right", so it cannot see a pair that has movements and no level — which
+     * is the case it most needs to see. Working from the union of pairs in
+     * both tables is what closes it.
+     */
+    [, $level] = trackedItemWithStock();
+
+    DB::table('stock_levels')->where('id', $level->id)->delete();
+
+    $this->artisan('my-books:verify-ledger')
+        ->expectsOutputToContain('the level says 0')
+        ->assertExitCode(1);
+});
+
+it('catches a level pointing at a movement that is not its own', function (): void {
+    /*
+     * A different fault from drift: the figures can be right while the
+     * pointer names somebody else's row, or nothing at all. Its own check,
+     * because reporting it through the drift message would mean printing
+     * movement totals nobody measured.
+     *
+     * The pointer is corrupted rather than the movement, because the
+     * append-only trigger refuses to let a movement be updated or deleted.
+     */
+    [, $level] = trackedItemWithStock();
+
+    DB::table('stock_levels')
+        ->where('id', $level->id)
+        ->update(['last_movement_id' => (string) Str::uuid7()]);
+
+    $this->artisan('my-books:verify-ledger')
+        ->expectsOutputToContain('names a last movement')
+        ->assertExitCode(1);
+});
+
+it('catches stock that no longer agrees with the inventory account', function (): void {
+    trackedItemWithStock();
+
+    // A movement inserted behind the application's back — the shelf now says
+    // more than the ledger ever debited.
+    $movement = DB::table('stock_movements')->orderByDesc('created_at')->first();
+
+    DB::table('stock_movements')->insert([
+        'id' => (string) Str::uuid7(),
+        'organization_id' => $this->organization->getKey(),
+        'item_id' => $movement->item_id,
+        'warehouse_id' => $movement->warehouse_id,
+        'occurred_on' => '2026-08-01',
+        'kind' => 'adjustment',
+        'quantity' => '5',
+        'unit_cost' => '10',
+        'value' => '50.0000',
+        'quantity_after' => bcadd((string) $movement->quantity_after, '5', 6),
+        'value_after' => bcadd((string) $movement->value_after, '50', 4),
+        'unit_cost_after' => '10',
+        'source_type' => 'smuggled',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    DB::table('stock_levels')
+        ->where('item_id', $movement->item_id)
+        ->update([
+            'quantity' => bcadd((string) $movement->quantity_after, '5', 6),
+            'value' => bcadd((string) $movement->value_after, '50', 4),
+        ]);
+
+    $this->artisan('my-books:verify-ledger')
+        ->expectsOutputToContain('but stock is worth')
+        ->assertExitCode(1);
+});
+
+it('reports the FIRST date the two sides diverged, not just today', function (): void {
+    /*
+     * "At every point in time" is the exit criterion's own phrasing, and it
+     * is there because a check of today's figures passes on books that were
+     * wrong for six months and were accidentally corrected.
+     */
+    [, $level] = trackedItemWithStock();
+
+    $movement = DB::table('stock_movements')->orderBy('occurred_on')->first();
+
+    DB::table('stock_movements')->insert([
+        'id' => (string) Str::uuid7(),
+        'organization_id' => $this->organization->getKey(),
+        'item_id' => $movement->item_id,
+        'warehouse_id' => $movement->warehouse_id,
+        // Dated BEFORE everything else, and reversed out by nothing.
+        'occurred_on' => '2026-07-01',
+        'kind' => 'adjustment',
+        'quantity' => '1',
+        'unit_cost' => '10',
+        'value' => '10.0000',
+        'quantity_after' => '1',
+        'value_after' => '10.0000',
+        'unit_cost_after' => '10',
+        'source_type' => 'smuggled',
+        'created_at' => now()->subYear(),
+        'updated_at' => now(),
+    ]);
+
+    $this->artisan('my-books:verify-ledger')
+        ->expectsOutputToContain('As at 2026-07-01')
+        ->assertExitCode(1);
+
+    expect($level->quantity)->not->toBeNull();
+});
+
+/**
+ * A tracked item with stock bought in and some of it sold, all through the
+ * domain — so anything the verifier then reports is a corruption this test
+ * introduced rather than a defect in the actions.
+ *
+ * @return array{0: Item, 1: StockLevel}
+ */
+function trackedItemWithStock(): array
+{
+    $item = Item::query()->create([
+        'kind' => ItemKind::Goods,
+        'name' => 'Widget',
+        'sales_account_id' => ledgerAccount('4010')->id,
+        'inventory_account_id' => ledgerAccount('1300')->id,
+        'is_tracked' => true,
+        'is_sold' => true,
+    ]);
+
+    $warehouse = app(WarehouseResolver::class)->default();
+
+    $adjustment = app(SaveInventoryAdjustment::class)->handle(
+        attributes: [
+            'adjustment_date' => '2026-08-05',
+            'warehouse_id' => $warehouse->id,
+            'kind' => 'opening',
+            'account_id' => ledgerAccount('3100')->id,
+            'reason' => 'Opening stock',
+        ],
+        lines: [['item_id' => $item->id, 'quantity_change' => '20', 'unit_cost' => '10']],
+    );
+
+    app(ApproveInventoryAdjustment::class)->handle($adjustment);
+
+    $level = StockLevel::query()
+        ->where('item_id', $item->id)
+        ->sole();
+
+    return [$item, $level];
+}

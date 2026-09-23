@@ -26,7 +26,7 @@ These hold at all times, for every organisation, in every period.
 | I7 | Every line's account belongs to the same organisation as the entry | FK + `CHECK`, RLS |
 | I8 | The AR control account equals the sum of open customer balances | `verify-ledger` |
 | I9 | The AP control account equals the sum of open vendor balances | `verify-ledger` |
-| I10 | The inventory control account equals total stock valuation | `verify-ledger` (Phase 8) |
+| I10 | The inventory control account equals total stock valuation, on every date either side moved | `verify-ledger` |
 | I11 | Trial balance totals are equal and the balance sheet balances | `verify-ledger` |
 
 I8–I11 are **reconciliations**, not constraints: they can only be checked
@@ -191,6 +191,32 @@ Allocating the advance later moves it: `Dr 2200 / Cr 1200`.
 Non-claimable input tax is **not** posted to 1400 — it is capitalised into
 the expense or inventory value, because it is a real cost, not a receivable.
 
+A line for a **tracked** item debits that item's inventory account, not an
+expense: the cost reaches the profit and loss under §4.10 when the goods are
+sold. The stock movement records the line's *capitalised cost* — the value the
+ledger actually debited, blocked tax and document discount included — rather
+than a per-unit rate, so the shelf and the account cannot round apart. On a
+foreign-currency bill it records the **base-currency** figure, allocated so
+that the lines sharing an account sum to exactly what was debited: the stock
+ledger is kept in the only currency the control account is kept in.
+
+Two rules keep the inventory account reconcilable, and both are enforced:
+
+- a tracked item's line is costed to **that item's** inventory account, and
+  nothing else may override it;
+- **nothing but tracked stock** may be costed to an inventory account — not by
+  naming one on the line, and not by an item's own default purchase account
+  pointing at one. Carriage belongs on the goods' own line, where it becomes
+  part of what they cost.
+
+The same rule binds **expenses**: an expense never puts anything on a shelf,
+so it may not be costed to an inventory account either. Stock is bought on a
+bill, where the goods are received.
+
+Together these make "what the account was debited" and "what went on the
+shelf" the same set of figures, which is the only way I10 can be checked at
+all.
+
 ### 4.7 Vendor payment, with withholding
 
 We withhold 10% on a services bill of 50,000.00 and remit 45,000.00.
@@ -222,16 +248,30 @@ vendor's account is settled in full.
 
 A transfer is never income or expense on either side.
 
-### 4.10 Cost of goods sold *(Phase 8)*
+### 4.10 Cost of goods sold
 
 Posted on **shipment**, which is not always the invoice date.
 
 | Account | Dr | Cr |
 |---------|---:|---:|
-| 5000 Cost of Goods Sold | *cost* | |
+| 5010 Cost of Goods Sold | *cost* | |
 | 1300 Inventory | | *cost* |
 
-Cost is weighted-average at the moment of shipment.
+Cost is weighted-average **per warehouse**, at the moment of shipment, and the
+credit goes to the item's own inventory account — a document touching items
+with different inventory accounts credits each of them separately.
+
+Two details that are rules, not implementation:
+
+- **The last unit out takes the whole remaining value**, rather than
+  quantity × average. Rounding a rate and multiplying back strands a fraction
+  on an empty shelf, and I10 would then fail forever by that fraction.
+- **The entry has its own purpose** — `('sales_document', id, 'cogs')`, and
+  `'cogs_reversal'` for goods coming back. I6 keys idempotency on the purpose,
+  and the invoice itself has already used `issue`.
+
+Goods returned by a customer are restocked at the average of the moment they
+**return**, not at what they cost when they left.
 
 ### 4.11 Realised FX gain on settlement
 
@@ -287,6 +327,53 @@ Never edit a posted entry. Reverse it and post a correct one.
 The reversal is a new entry with debits and credits swapped, dated in an open
 period, carrying `reversal_of = <original entry id>`. Both entries remain
 visible forever.
+
+**Where the document also moved stock, the goods are reversed with the
+money — at the same value, on the same date.** The same value, because the
+entry reversal mirrors the original amounts, so costing the stock side at the
+current weighted average would put the two halves on different numbers. The
+same date, because a reversal dated today against a stock movement dated at
+issue leaves the inventory account holding goods the stock report says are
+gone, for the whole window in between.
+
+If the goods have since been sold, the reversal does not fit and the void is
+**refused**: a credit note or a vendor credit is the document that says what
+actually happened, and dates it when it happened.
+
+### 4.16 Stock adjustment
+
+Posted **on approval**. A draft adjustment changes neither stock nor ledger.
+
+Stock written off — breakage, a count that came up short:
+
+| Account | Dr | Cr |
+|---------|---:|---:|
+| 5xxx chosen account *(write-off, shrinkage)* | *value* | |
+| 1300 Inventory | | *value* |
+
+Stock written on — a count that came up over, opening stock:
+
+| Account | Dr | Cr |
+|---------|---:|---:|
+| 1300 Inventory | *value* | |
+| 3xxx or 5xxx chosen account *(equity for opening stock)* | | *value* |
+
+The **value** is the quantity difference at the weighted average of the
+adjustment's moment, not a figure the person entering it supplies. A unit cost
+may only be stated where there is no average to use — nothing on the shelf.
+
+An adjustment that moves value between two inventory accounts still posts,
+even though its two sides net to zero: the entry is the two inventory lines,
+with no contra line, because they already balance each other. Treating "nets
+to zero" as "nothing moved" would move the stock and post nothing.
+
+An adjustment that moves **quantity and no value** — free samples, or goods
+already written down to nothing — moves the stock and posts nothing, because
+the ledger refuses a zero-value entry and is right to.
+
+A stock **transfer** posts nothing at all: value travels with the goods at the
+source warehouse's average, so neither warehouse is restated and no account
+moves.
 
 ---
 
@@ -359,7 +446,9 @@ dates. A rate change must never retroactively alter a posted document.
 | Bank statement import | No | Import is not posting |
 | **Reconciliation match** | **Yes** | On explicit confirmation, never automatically |
 | **Manual journal** | **Yes** | On post |
-| **Inventory adjustment** | **Yes** | On approval |
+| **Inventory adjustment** | **Yes** | On approval — a draft moves nothing |
+| **Goods despatched** | **Yes** | On shipment (§4.10), under its own purpose |
+| Stock transfer | No | The business owns what it owned, elsewhere |
 
 ### Status lifecycles
 

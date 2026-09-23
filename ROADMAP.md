@@ -149,13 +149,25 @@ and what would change the decision.
 
 ---
 
-## Phase 8 — Inventory
+## Phase 8 — Inventory · *complete — 2026-09-23*
 
 Items with stock tracking, warehouses, adjustments, weighted-average
 valuation, COGS posting, stock reports.
 
 **Exit:** stock valuation matches the inventory control account exactly, at
 every point in time.
+
+**Status:** every exit criterion met, and the criterion is proved rather than
+asserted — `verify-ledger` checks, for each inventory account, that the stock
+ledger's value equals the account's balance on every date on which either side
+moved.
+
+Getting there took four rounds of adversarial review and 51 confirmed defects,
+converging 28 → 16 → 5 → 2. Almost all of them were the same fault: the ledger
+moved and the shelf did not, or they moved by different figures — and almost
+none showed in today's numbers, which is why the criterion is phrased the way
+it is. `docs/adr/0007-stock-is-an-append-only-sub-ledger.md` records the design
+and what the reviews taught.
 
 ---
 

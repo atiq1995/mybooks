@@ -15,6 +15,7 @@ use App\Domain\Expenses\Models\Expense;
 use App\Domain\Expenses\Models\ExpenseLine;
 use App\Domain\Expenses\Models\MileageRate;
 use App\Domain\Expenses\Services\ExpenseCalculator;
+use App\Domain\Inventory\Services\InventoryAccounts;
 use App\Models\User;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Support\Carbon;
@@ -41,6 +42,7 @@ final readonly class SaveExpense
         private TenantContext $tenant,
         private DocumentNumberGenerator $numbers,
         private ExpenseCalculator $calculator,
+        private InventoryAccounts $inventoryAccounts,
         private AuditRecorder $audit,
     ) {}
 
@@ -187,9 +189,11 @@ final readonly class SaveExpense
      */
     private function replaceLines(Expense $expense, array $lines, Carbon $on): void
     {
-        ExpenseLine::query()->where('expense_id', $expense->id)->delete();
-
         $defaultExpense = $this->defaultExpenseAccountId();
+
+        $this->refuseCostsOnAStockAccount($lines, $defaultExpense);
+
+        ExpenseLine::query()->where('expense_id', $expense->id)->delete();
 
         $lineNo = 1;
 
@@ -289,6 +293,43 @@ final readonly class SaveExpense
      * The first ordinary expense account by code. Not a system account: an
      * organisation has many expense accounts and none of them is "the" one.
      */
+    /**
+     * An expense may not be costed to an inventory account.
+     *
+     * The same rule the purchase side enforces, and it has to exist on both
+     * doors or it exists on neither. I10 reconciles an inventory account
+     * against the stock attributed to it, so that account may receive only
+     * what actually lands on a shelf. An expense has no stock path at all —
+     * nothing in this domain writes a movement — so an expense debiting 1300
+     * puts value into the control account that the stock ledger will never
+     * account for, and the two are out by that amount on every date from then
+     * on. Nothing inside inventory can close it: the stock ledger will not
+     * accept value with no document behind it.
+     *
+     * The account list on the screen leaves these out too, but the refusal is
+     * here, because the screen is not the only way in.
+     *
+     * Stock is bought on a bill.
+     *
+     * @param  list<array<string, mixed>>  $lines
+     */
+    private function refuseCostsOnAStockAccount(array $lines, string $defaultExpense): void
+    {
+        foreach ($lines as $input) {
+            $accountId = self::optionalText($input, 'debit_account_id') ?? $defaultExpense;
+
+            if (! $this->inventoryAccounts->has($accountId)) {
+                continue;
+            }
+
+            $account = Account::query()->find($accountId);
+
+            throw ExpenseRefused::notAnInventoryPurchase(
+                $account === null ? 'That account' : $account->code.' '.$account->name,
+            );
+        }
+    }
+
     private function defaultExpenseAccountId(): string
     {
         $account = Account::query()

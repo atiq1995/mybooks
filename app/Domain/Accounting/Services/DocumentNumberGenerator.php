@@ -31,6 +31,30 @@ final readonly class DocumentNumberGenerator
     ) {}
 
     /**
+     * Take the sequence lock now, without claiming a number.
+     *
+     * For callers that will post LATER in their transaction but take another
+     * contended lock first — the stock levels, in practice. Two resources
+     * locked in two orders is a deadlock: an adjustment that locks stock and
+     * then posts, running beside a bill that posts and then locks stock, end
+     * up each holding what the other is waiting for, and PostgreSQL resolves
+     * it by killing one of them. `DB::transaction()` does not retry by
+     * default, so what the user sees is a lost approval and a 500.
+     *
+     * Reaching for the sequence first makes the order the same everywhere.
+     * It costs nothing that was not already being paid: every posting takes
+     * this row and holds it to commit anyway.
+     */
+    public function reserve(string $documentType): void
+    {
+        DB::table('document_sequences')
+            ->where('organization_id', $this->tenant->organization()->getKey())
+            ->where('document_type', $documentType)
+            ->lockForUpdate()
+            ->first();
+    }
+
+    /**
      * Claim the next number for a document type.
      *
      * MUST be called inside a transaction: the row lock is what makes the
@@ -149,6 +173,11 @@ final readonly class DocumentNumberGenerator
 
             'bank_transfer' => 'TRF-',
             'reconciliation' => 'REC-',
+
+            'inventory_adjustment' => 'ADJ-',
+            // Not TRF-: that is a bank transfer, and two documents sharing a
+            // prefix is how somebody quotes the wrong one down a phone.
+            'stock_transfer' => 'STK-',
 
             'journal' => 'JE-',
 
